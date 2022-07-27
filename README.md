@@ -10,6 +10,9 @@ If npx is not yet installed:
 Install packages:
 `npm i`
 
+## Clean Artifacts
+`npx hardhat clean`
+
 ## Compile Contracts
 `npx hardhat compile`
 
