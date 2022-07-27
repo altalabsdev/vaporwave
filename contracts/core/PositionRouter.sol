@@ -8,7 +8,7 @@ import "./interfaces/IPositionRouter.sol";
 import "../peripherals/interfaces/ITimelock.sol";
 import "./BasePositionManager.sol";
 
-//TODO: stack too deep error
+/// @title Vaporwave Position Router
 contract PositionRouter is BasePositionManager, IPositionRouter {
     using SafeERC20 for IERC20;
 
@@ -57,13 +57,13 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     uint256 public increasePositionRequestKeysStart;
     uint256 public decreasePositionRequestKeysStart;
 
-    mapping (address => bool) public isPositionKeeper;
+    mapping(address => bool) public isPositionKeeper;
 
-    mapping (address => uint256) public increasePositionsIndex;
-    mapping (bytes32 => IncreasePositionRequest) public increasePositionRequests;
+    mapping(address => uint256) public increasePositionsIndex;
+    mapping(bytes32 => IncreasePositionRequest) public increasePositionRequests;
 
-    mapping (address => uint256) public decreasePositionsIndex;
-    mapping (bytes32 => DecreasePositionRequest) public decreasePositionRequests;
+    mapping(address => uint256) public decreasePositionsIndex;
+    mapping(bytes32 => DecreasePositionRequest) public decreasePositionRequests;
 
     event CreateIncreasePosition(
         address indexed account,
@@ -158,8 +158,15 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     event SetPositionKeeper(address indexed account, bool isActive);
     event SetMinExecutionFee(uint256 minExecutionFee);
     event SetIsLeverageEnabled(bool isLeverageEnabled);
-    event SetDelayValues(uint256 minBlockDelayKeeper, uint256 minTimeDelayPublic, uint256 maxTimeDelay);
-    event SetRequestKeysStartValues(uint256 increasePositionRequestKeysStart, uint256 decreasePositionRequestKeysStart);
+    event SetDelayValues(
+        uint256 minBlockDelayKeeper,
+        uint256 minTimeDelayPublic,
+        uint256 maxTimeDelay
+    );
+    event SetRequestKeysStartValues(
+        uint256 increasePositionRequestKeysStart,
+        uint256 decreasePositionRequestKeysStart
+    );
 
     modifier onlyPositionKeeper() {
         require(isPositionKeeper[msg.sender], "PositionRouter: forbidden");
@@ -176,7 +183,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         minExecutionFee = _minExecutionFee;
     }
 
-    function setPositionKeeper(address _account, bool _isActive) external onlyAdmin {
+    function setPositionKeeper(address _account, bool _isActive)
+        external
+        onlyAdmin
+    {
         isPositionKeeper[_account] = _isActive;
         emit SetPositionKeeper(_account, _isActive);
     }
@@ -191,25 +201,44 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         emit SetIsLeverageEnabled(_isLeverageEnabled);
     }
 
-    function setDelayValues(uint256 _minBlockDelayKeeper, uint256 _minTimeDelayPublic, uint256 _maxTimeDelay) external onlyAdmin {
+    function setDelayValues(
+        uint256 _minBlockDelayKeeper,
+        uint256 _minTimeDelayPublic,
+        uint256 _maxTimeDelay
+    ) external onlyAdmin {
         minBlockDelayKeeper = _minBlockDelayKeeper;
         minTimeDelayPublic = _minTimeDelayPublic;
         maxTimeDelay = _maxTimeDelay;
-        emit SetDelayValues(_minBlockDelayKeeper, _minTimeDelayPublic, _maxTimeDelay);
+        emit SetDelayValues(
+            _minBlockDelayKeeper,
+            _minTimeDelayPublic,
+            _maxTimeDelay
+        );
     }
 
-    function setRequestKeysStartValues(uint256 _increasePositionRequestKeysStart, uint256 _decreasePositionRequestKeysStart) external onlyAdmin {
+    function setRequestKeysStartValues(
+        uint256 _increasePositionRequestKeysStart,
+        uint256 _decreasePositionRequestKeysStart
+    ) external onlyAdmin {
         increasePositionRequestKeysStart = _increasePositionRequestKeysStart;
         decreasePositionRequestKeysStart = _decreasePositionRequestKeysStart;
 
-        emit SetRequestKeysStartValues(_increasePositionRequestKeysStart, _decreasePositionRequestKeysStart);
+        emit SetRequestKeysStartValues(
+            _increasePositionRequestKeysStart,
+            _decreasePositionRequestKeysStart
+        );
     }
 
-    function executeIncreasePositions(uint256 _endIndex, address payable _executionFeeReceiver) external override onlyPositionKeeper {
+    function executeIncreasePositions(
+        uint256 _endIndex,
+        address payable _executionFeeReceiver
+    ) external override onlyPositionKeeper {
         uint256 index = increasePositionRequestKeysStart;
         uint256 length = increasePositionRequestKeys.length;
 
-        if (index >= length) { return; }
+        if (index >= length) {
+            return;
+        }
 
         if (_endIndex > length) {
             _endIndex = length;
@@ -224,12 +253,20 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             // an error could be thrown if the request is too old or if the slippage is
             // higher than what the user specified, or if there is insufficient liquidity for the position
             // in case an error was thrown, cancel the request
-            try this.executeIncreasePosition(key, _executionFeeReceiver) returns (bool _wasExecuted) {
-                if (!_wasExecuted) { break; }
+            try
+                this.executeIncreasePosition(key, _executionFeeReceiver)
+            returns (bool _wasExecuted) {
+                if (!_wasExecuted) {
+                    break;
+                }
             } catch {
                 // wrap this call in a try catch to prevent invalid cancels from blocking the loop
-                try this.cancelIncreasePosition(key, _executionFeeReceiver) returns (bool _wasCancelled) {
-                    if (!_wasCancelled) { break; }
+                try
+                    this.cancelIncreasePosition(key, _executionFeeReceiver)
+                returns (bool _wasCancelled) {
+                    if (!_wasCancelled) {
+                        break;
+                    }
                 } catch {}
             }
 
@@ -240,11 +277,16 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         increasePositionRequestKeysStart = index;
     }
 
-    function executeDecreasePositions(uint256 _endIndex, address payable _executionFeeReceiver) external override onlyPositionKeeper {
+    function executeDecreasePositions(
+        uint256 _endIndex,
+        address payable _executionFeeReceiver
+    ) external override onlyPositionKeeper {
         uint256 index = decreasePositionRequestKeysStart;
         uint256 length = decreasePositionRequestKeys.length;
 
-        if (index >= length) { return; }
+        if (index >= length) {
+            return;
+        }
 
         if (_endIndex > length) {
             _endIndex = length;
@@ -258,12 +300,20 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             // minimum number of blocks has not yet passed
             // an error could be thrown if the request is too old
             // in case an error was thrown, cancel the request
-            try this.executeDecreasePosition(key, _executionFeeReceiver) returns (bool _wasExecuted) {
-                if (!_wasExecuted) { break; }
+            try
+                this.executeDecreasePosition(key, _executionFeeReceiver)
+            returns (bool _wasExecuted) {
+                if (!_wasExecuted) {
+                    break;
+                }
             } catch {
                 // wrap this call in a try catch to prevent invalid cancels from blocking the loop
-                try this.cancelDecreasePosition(key, _executionFeeReceiver) returns (bool _wasCancelled) {
-                    if (!_wasCancelled) { break; }
+                try
+                    this.cancelDecreasePosition(key, _executionFeeReceiver)
+                returns (bool _wasCancelled) {
+                    if (!_wasCancelled) {
+                        break;
+                    }
                 } catch {}
             }
 
@@ -285,15 +335,29 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _executionFee,
         bytes32 _referralCode
     ) external payable nonReentrant {
-        require(_executionFee >= minExecutionFee, "PositionRouter: invalid executionFee");
-        require(msg.value == _executionFee, "PositionRouter: invalid msg.value");
-        require(_path.length == 1 || _path.length == 2, "PositionRouter: invalid _path length");
+        require(
+            _executionFee >= minExecutionFee,
+            "PositionRouter: invalid executionFee"
+        );
+        require(
+            msg.value == _executionFee,
+            "PositionRouter: invalid msg.value"
+        );
+        require(
+            _path.length == 1 || _path.length == 2,
+            "PositionRouter: invalid _path length"
+        );
 
         _transferInETH();
         _setTraderReferralCode(_referralCode);
 
         if (_amountIn > 0) {
-            IRouter(router).pluginTransfer(_path[0], msg.sender, address(this), _amountIn);
+            IRouter(router).pluginTransfer(
+                _path[0],
+                msg.sender,
+                address(this),
+                _amountIn
+            );
         }
 
         _createIncreasePosition(
@@ -320,9 +384,18 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _executionFee,
         bytes32 _referralCode
     ) external payable nonReentrant {
-        require(_executionFee >= minExecutionFee, "PositionRouter: invalid executionFee");
-        require(msg.value >= _executionFee, "PositionRouter: invalid msg.value");
-        require(_path.length == 1 || _path.length == 2, "PositionRouter: invalid _path length");
+        require(
+            _executionFee >= minExecutionFee,
+            "PositionRouter: invalid executionFee"
+        );
+        require(
+            msg.value >= _executionFee,
+            "PositionRouter: invalid msg.value"
+        );
+        require(
+            _path.length == 1 || _path.length == 2,
+            "PositionRouter: invalid _path length"
+        );
         require(_path[0] == weth, "PositionRouter: invalid _path");
 
         _transferInETH();
@@ -356,12 +429,24 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _executionFee,
         bool _withdrawETH
     ) external payable nonReentrant {
-        require(_executionFee >= minExecutionFee, "PositionRouter: invalid executionFee");
-        require(msg.value == _executionFee, "PositionRouter: invalid msg.value");
-        require(_path.length == 1 || _path.length == 2, "PositionRouter: invalid _path length");
+        require(
+            _executionFee >= minExecutionFee,
+            "PositionRouter: invalid executionFee"
+        );
+        require(
+            msg.value == _executionFee,
+            "PositionRouter: invalid msg.value"
+        );
+        require(
+            _path.length == 1 || _path.length == 2,
+            "PositionRouter: invalid _path length"
+        );
 
         if (_withdrawETH) {
-            require(_path[_path.length - 1] == weth, "PositionRouter: invalid _path");
+            require(
+                _path[_path.length - 1] == weth,
+                "PositionRouter: invalid _path"
+            );
         }
 
         _transferInETH();
@@ -381,7 +466,16 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
-    function getRequestQueueLengths() external view returns (uint256, uint256, uint256, uint256) {
+    function getRequestQueueLengths()
+        external
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        )
+    {
         return (
             increasePositionRequestKeysStart,
             increasePositionRequestKeys.length,
@@ -390,31 +484,59 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
-    function executeIncreasePosition(bytes32 _key, address payable _executionFeeReceiver) public nonReentrant returns (bool) {
+    function executeIncreasePosition(
+        bytes32 _key,
+        address payable _executionFeeReceiver
+    ) public nonReentrant returns (bool) {
         IncreasePositionRequest memory request = increasePositionRequests[_key];
         // if the request was already executed or cancelled, return true so that the executeIncreasePositions loop will continue executing the next request
-        if (request.account == address(0)) { return true; }
+        if (request.account == address(0)) {
+            return true;
+        }
 
-        bool shouldExecute = _validateExecution(request.blockNumber, request.blockTime, request.account);
-        if (!shouldExecute) { return false; }
+        bool shouldExecute = _validateExecution(
+            request.blockNumber,
+            request.blockTime,
+            request.account
+        );
+        if (!shouldExecute) {
+            return false;
+        }
 
         delete increasePositionRequests[_key];
 
-       if (request.amountIn > 0) {
-           uint256 amountIn = request.amountIn;
+        if (request.amountIn > 0) {
+            uint256 amountIn = request.amountIn;
 
-           if (request.path.length > 1) {
-               IERC20(request.path[0]).safeTransfer(vault, request.amountIn);
-               amountIn = _swap(request.path, request.minOut, address(this));
-           }
+            if (request.path.length > 1) {
+                IERC20(request.path[0]).safeTransfer(vault, request.amountIn);
+                amountIn = _swap(request.path, request.minOut, address(this));
+            }
 
-           uint256 afterFeeAmount = _collectFees(msg.sender, request.path, amountIn, request.indexToken, request.isLong, request.sizeDelta);
-           IERC20(request.path[request.path.length - 1]).safeTransfer(vault, afterFeeAmount);
-       }
+            uint256 afterFeeAmount = _collectFees(
+                msg.sender,
+                request.path,
+                amountIn,
+                request.indexToken,
+                request.isLong,
+                request.sizeDelta
+            );
+            IERC20(request.path[request.path.length - 1]).safeTransfer(
+                vault,
+                afterFeeAmount
+            );
+        }
 
-       _increasePosition(request.account, request.path[request.path.length - 1], request.indexToken, request.sizeDelta, request.isLong, request.acceptablePrice);
+        _increasePosition(
+            request.account,
+            request.path[request.path.length - 1],
+            request.indexToken,
+            request.sizeDelta,
+            request.isLong,
+            request.acceptablePrice
+        );
 
-       _transferOutETH(request.executionFee, _executionFeeReceiver);
+        _transferOutETH(request.executionFee, _executionFeeReceiver);
 
         emit ExecuteIncreasePosition(
             request.account,
@@ -433,23 +555,40 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
-    function cancelIncreasePosition(bytes32 _key, address payable _executionFeeReceiver) public nonReentrant returns (bool) {
+    function cancelIncreasePosition(
+        bytes32 _key,
+        address payable _executionFeeReceiver
+    ) public nonReentrant returns (bool) {
         IncreasePositionRequest memory request = increasePositionRequests[_key];
         // if the request was already executed or cancelled, return true so that the executeIncreasePositions loop will continue executing the next request
-        if (request.account == address(0)) { return true; }
+        if (request.account == address(0)) {
+            return true;
+        }
 
-        bool shouldCancel = _validateCancellation(request.blockNumber, request.blockTime, request.account);
-        if (!shouldCancel) { return false; }
+        bool shouldCancel = _validateCancellation(
+            request.blockNumber,
+            request.blockTime,
+            request.account
+        );
+        if (!shouldCancel) {
+            return false;
+        }
 
         delete increasePositionRequests[_key];
 
         if (request.hasCollateralInETH) {
-            _transferOutETHWithGasLimit(request.amountIn, payable(request.account));
+            _transferOutETHWithGasLimit(
+                request.amountIn,
+                payable(request.account)
+            );
         } else {
-            IERC20(request.path[0]).safeTransfer(request.account, request.amountIn);
+            IERC20(request.path[0]).safeTransfer(
+                request.account,
+                request.amountIn
+            );
         }
 
-       _transferOutETH(request.executionFee, _executionFeeReceiver);
+        _transferOutETH(request.executionFee, _executionFeeReceiver);
 
         emit CancelIncreasePosition(
             request.account,
@@ -468,17 +607,37 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
-    function executeDecreasePosition(bytes32 _key, address payable _executionFeeReceiver) public nonReentrant returns (bool) {
+    function executeDecreasePosition(
+        bytes32 _key,
+        address payable _executionFeeReceiver
+    ) public nonReentrant returns (bool) {
         DecreasePositionRequest memory request = decreasePositionRequests[_key];
         // if the request was already executed or cancelled, return true so that the executeDecreasePositions loop will continue executing the next request
-        if (request.account == address(0)) { return true; }
+        if (request.account == address(0)) {
+            return true;
+        }
 
-        bool shouldExecute = _validateExecution(request.blockNumber, request.blockTime, request.account);
-        if (!shouldExecute) { return false; }
+        bool shouldExecute = _validateExecution(
+            request.blockNumber,
+            request.blockTime,
+            request.account
+        );
+        if (!shouldExecute) {
+            return false;
+        }
 
         delete decreasePositionRequests[_key];
 
-        uint256 amountOut = _decreasePosition(request.account, request.path[0], request.indexToken, request.collateralDelta, request.sizeDelta, request.isLong, address(this), request.acceptablePrice);
+        uint256 amountOut = _decreasePosition(
+            request.account,
+            request.path[0],
+            request.indexToken,
+            request.collateralDelta,
+            request.sizeDelta,
+            request.isLong,
+            address(this),
+            request.acceptablePrice
+        );
 
         if (request.path.length > 1) {
             IERC20(request.path[0]).safeTransfer(vault, amountOut);
@@ -486,12 +645,15 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         }
 
         if (request.withdrawETH) {
-           _transferOutETHWithGasLimit(amountOut, payable(request.receiver));
+            _transferOutETHWithGasLimit(amountOut, payable(request.receiver));
         } else {
-           IERC20(request.path[request.path.length - 1]).safeTransfer(request.receiver, amountOut);
+            IERC20(request.path[request.path.length - 1]).safeTransfer(
+                request.receiver,
+                amountOut
+            );
         }
 
-       _transferOutETH(request.executionFee, _executionFeeReceiver);
+        _transferOutETH(request.executionFee, _executionFeeReceiver);
 
         emit ExecuteDecreasePosition(
             request.account,
@@ -511,17 +673,28 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
-    function cancelDecreasePosition(bytes32 _key, address payable _executionFeeReceiver) public nonReentrant returns (bool) {
+    function cancelDecreasePosition(
+        bytes32 _key,
+        address payable _executionFeeReceiver
+    ) public nonReentrant returns (bool) {
         DecreasePositionRequest memory request = decreasePositionRequests[_key];
         // if the request was already executed or cancelled, return true so that the executeDecreasePositions loop will continue executing the next request
-        if (request.account == address(0)) { return true; }
+        if (request.account == address(0)) {
+            return true;
+        }
 
-        bool shouldCancel = _validateCancellation(request.blockNumber, request.blockTime, request.account);
-        if (!shouldCancel) { return false; }
+        bool shouldCancel = _validateCancellation(
+            request.blockNumber,
+            request.blockTime,
+            request.account
+        );
+        if (!shouldCancel) {
+            return false;
+        }
 
         delete decreasePositionRequests[_key];
 
-       _transferOutETH(request.executionFee, _executionFeeReceiver);
+        _transferOutETH(request.executionFee, _executionFeeReceiver);
 
         emit CancelDecreasePosition(
             request.account,
@@ -541,32 +714,52 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
-    function getRequestKey(address _account, uint256 _index) public pure returns (bytes32) {
+    function getRequestKey(address _account, uint256 _index)
+        public
+        pure
+        returns (bytes32)
+    {
         return keccak256(abi.encodePacked(_account, _index));
     }
 
-    function getIncreasePositionRequestPath(bytes32 _key) public view returns (address[] memory) {
+    function getIncreasePositionRequestPath(bytes32 _key)
+        public
+        view
+        returns (address[] memory)
+    {
         IncreasePositionRequest memory request = increasePositionRequests[_key];
         return request.path;
     }
 
-    function getDecreasePositionRequestPath(bytes32 _key) public view returns (address[] memory) {
+    function getDecreasePositionRequestPath(bytes32 _key)
+        public
+        view
+        returns (address[] memory)
+    {
         DecreasePositionRequest memory request = decreasePositionRequests[_key];
         return request.path;
     }
 
     function _setTraderReferralCode(bytes32 _referralCode) internal {
         if (_referralCode != bytes32(0) && referralStorage != address(0)) {
-            IReferralStorage(referralStorage).setTraderReferralCode(msg.sender, _referralCode);
+            IReferralStorage(referralStorage).setTraderReferralCode(
+                msg.sender,
+                _referralCode
+            );
         }
     }
 
-    function _validateExecution(uint256 _positionBlockNumber, uint256 _positionBlockTime, address _account) internal view returns (bool) {
+    function _validateExecution(
+        uint256 _positionBlockNumber,
+        uint256 _positionBlockTime,
+        address _account
+    ) internal view returns (bool) {
         if (_positionBlockTime + maxTimeDelay <= block.timestamp) {
             revert("PositionRouter: request has expired");
         }
 
-        bool isKeeperCall = msg.sender == address(this) || isPositionKeeper[msg.sender];
+        bool isKeeperCall = msg.sender == address(this) ||
+            isPositionKeeper[msg.sender];
 
         if (!isLeverageEnabled && !isKeeperCall) {
             revert("PositionRouter: forbidden");
@@ -578,13 +771,21 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
 
         require(msg.sender == _account, "PositionRouter: forbidden");
 
-        require(_positionBlockTime + minTimeDelayPublic <= block.timestamp, "PositionRouter: min delay not yet passed");
+        require(
+            _positionBlockTime + minTimeDelayPublic <= block.timestamp,
+            "PositionRouter: min delay not yet passed"
+        );
 
         return true;
     }
 
-    function _validateCancellation(uint256 _positionBlockNumber, uint256 _positionBlockTime, address _account) internal view returns (bool) {
-        bool isKeeperCall = msg.sender == address(this) || isPositionKeeper[msg.sender];
+    function _validateCancellation(
+        uint256 _positionBlockNumber,
+        uint256 _positionBlockTime,
+        address _account
+    ) internal view returns (bool) {
+        bool isKeeperCall = msg.sender == address(this) ||
+            isPositionKeeper[msg.sender];
 
         if (!isLeverageEnabled && !isKeeperCall) {
             revert("PositionRouter: forbidden");
@@ -596,7 +797,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
 
         require(msg.sender == _account, "PositionRouter: forbidden");
 
-        require(_positionBlockTime + minTimeDelayPublic <= block.timestamp, "PositionRouter: min delay not yet passed");
+        require(
+            _positionBlockTime + minTimeDelayPublic <= block.timestamp,
+            "PositionRouter: min delay not yet passed"
+        );
 
         return true;
     }
