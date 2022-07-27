@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "../libraries/utils/math/SafeMath.sol";
-import "../libraries/token/IERC20.sol";
-import "../libraries/token/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./interfaces/IDistributor.sol";
 
@@ -15,12 +15,16 @@ contract TimeDistributor is IDistributor {
     address public gov;
     address public admin;
 
-    mapping (address => address) public rewardTokens;
-    mapping (address => uint256) public override tokensPerInterval;
-    mapping (address => uint256) public lastDistributionTime;
+    mapping(address => address) public rewardTokens;
+    mapping(address => uint256) public override tokensPerInterval;
+    mapping(address => uint256) public lastDistributionTime;
 
     event Distribute(address receiver, uint256 amount);
-    event DistributionChange(address receiver, uint256 amount, address rewardToken);
+    event DistributionChange(
+        address receiver,
+        uint256 amount,
+        address rewardToken
+    );
     event TokensPerIntervalChange(address receiver, uint256 amount);
 
     modifier onlyGov() {
@@ -42,7 +46,10 @@ contract TimeDistributor is IDistributor {
         gov = _gov;
     }
 
-    function setTokensPerInterval(address _receiver, uint256 _amount) external onlyAdmin {
+    function setTokensPerInterval(address _receiver, uint256 _amount)
+        external
+        onlyAdmin
+    {
         if (lastDistributionTime[_receiver] != 0) {
             uint256 intervals = getIntervals(_receiver);
             require(intervals == 0, "TimeDistributor: pending distribution");
@@ -67,7 +74,10 @@ contract TimeDistributor is IDistributor {
 
             if (lastDistributionTime[receiver] != 0) {
                 uint256 intervals = getIntervals(receiver);
-                require(intervals == 0, "TimeDistributor: pending distribution");
+                require(
+                    intervals == 0,
+                    "TimeDistributor: pending distribution"
+                );
             }
 
             uint256 amount = _amounts[i];
@@ -83,12 +93,16 @@ contract TimeDistributor is IDistributor {
         address receiver = msg.sender;
         uint256 intervals = getIntervals(receiver);
 
-        if (intervals == 0) { return 0; }
+        if (intervals == 0) {
+            return 0;
+        }
 
         uint256 amount = getDistributionAmount(receiver);
         _updateLastDistributionTime(receiver);
 
-        if (amount == 0) { return 0; }
+        if (amount == 0) {
+            return 0;
+        }
 
         IERC20(rewardTokens[receiver]).safeTransfer(receiver, amount);
 
@@ -96,18 +110,32 @@ contract TimeDistributor is IDistributor {
         return amount;
     }
 
-    function getRewardToken(address _receiver) external override view returns (address) {
+    function getRewardToken(address _receiver)
+        external
+        view
+        override
+        returns (address)
+    {
         return rewardTokens[_receiver];
     }
 
-    function getDistributionAmount(address _receiver) public override view returns (uint256) {
+    function getDistributionAmount(address _receiver)
+        public
+        view
+        override
+        returns (uint256)
+    {
         uint256 _tokensPerInterval = tokensPerInterval[_receiver];
-        if (_tokensPerInterval == 0) { return 0; }
+        if (_tokensPerInterval == 0) {
+            return 0;
+        }
 
         uint256 intervals = getIntervals(_receiver);
         uint256 amount = _tokensPerInterval.mul(intervals);
 
-        if (IERC20(rewardTokens[_receiver]).balanceOf(address(this)) < amount) { return 0; }
+        if (IERC20(rewardTokens[_receiver]).balanceOf(address(this)) < amount) {
+            return 0;
+        }
 
         return amount;
     }
@@ -118,6 +146,9 @@ contract TimeDistributor is IDistributor {
     }
 
     function _updateLastDistributionTime(address _receiver) private {
-        lastDistributionTime[_receiver] = block.timestamp.div(DISTRIBUTION_INTERVAL).mul(DISTRIBUTION_INTERVAL);
+        lastDistributionTime[_receiver] = block
+            .timestamp
+            .div(DISTRIBUTION_INTERVAL)
+            .mul(DISTRIBUTION_INTERVAL);
     }
 }
