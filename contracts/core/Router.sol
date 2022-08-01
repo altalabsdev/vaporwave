@@ -13,6 +13,14 @@ import "./interfaces/IRouter.sol";
 /// Contract does not have governor permissions
 error GovernorRestricted();
 
+error InvalidSender();
+error InvalidPath();
+error AboveLimit();
+error BelowLimit();
+error InvalidPlugin();
+error UnapprovedPlugin();
+error InsufficientAmountOut();
+
 /// @title Vaporwave Router
 contract Router is IRouter {
     using SafeMath for uint256;
@@ -56,29 +64,46 @@ contract Router is IRouter {
     }
 
     receive() external payable {
-        require(msg.sender == weth, "Router: invalid sender");
+        if (msg.sender != weth) {
+            revert InvalidSender();
+        }
     }
 
+    /// @notice Set the governor address to `_gov`
+    /// @param _gov The new governor address
     function setGov(address _gov) external onlyGov {
         gov = _gov;
     }
 
+    /// @notice Add `_plugin` as a plugin to the router
+    /// @param _plugin The address of the plugin to add
     function addPlugin(address _plugin) external override onlyGov {
         plugins[_plugin] = true;
     }
 
+    /// @notice Remove `_plugin` as a plugin from the router
+    /// @param _plugin The address of the plugin to remove
     function removePlugin(address _plugin) external onlyGov {
         plugins[_plugin] = false;
     }
 
+    /// @notice Approve `_plugin` as a plugin
+    /// @param _plugin The address of the plugin to approve
     function approvePlugin(address _plugin) external {
         approvedPlugins[msg.sender][_plugin] = true;
     }
 
+    /// @notice Deny `_plugin` as a plugin
+    /// @param _plugin The address of the plugin to deny
     function denyPlugin(address _plugin) external {
         approvedPlugins[msg.sender][_plugin] = false;
     }
 
+    /// @notice Transfer `_amount` of `_token` tokens from `_account to `_receiver`
+    /// @param _token The token to transfer
+    /// @param _account The address of the account to transfer from
+    /// @param _receiver The address of the account to transfer to
+    /// @param _amount The amount of tokens to transfer
     function pluginTransfer(
         address _token,
         address _account,
@@ -89,6 +114,12 @@ contract Router is IRouter {
         IERC20(_token).safeTransferFrom(_account, _receiver, _amount);
     }
 
+    /// @notice Increase the position of `_account` with `_collateralToken` collateral and `_indexToken` index
+    /// @param _account The address of the account to increase the position of
+    /// @param _collateralToken The token to use as collateral
+    /// @param _indexToken The token to use as index
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
     function pluginIncreasePosition(
         address _account,
         address _collateralToken,
@@ -106,6 +137,14 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Decrease the position of `_account` with `_collateralToken` collateral and `_indexToken` index
+    /// @param _account The address of the account to decrease the position of
+    /// @param _collateralToken The token to use as collateral
+    /// @param _indexToken The token to use as index
+    /// @param _collateralDelta The collateral delta
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _receiver The address of the account to receive the collateral
     function pluginDecreasePosition(
         address _account,
         address _collateralToken,
@@ -128,11 +167,19 @@ contract Router is IRouter {
             );
     }
 
+    /// @notice Make a direct token deposit to the vault pool
+    /// @param _token The token to deposit
+    /// @param _amount The amount of tokens to deposit
     function directPoolDeposit(address _token, uint256 _amount) external {
         IERC20(_token).safeTransferFrom(_sender(), vault, _amount);
         IVault(vault).directPoolDeposit(_token);
     }
 
+    /// @notice Make a token swap
+    /// @param _path The path of the token swap
+    /// @param _amountIn The amount of tokens to swap in
+    /// @param _minOut The minimum amount of tokens to swap out
+    /// @param _receiver The address of the account to receive the tokens
     function swap(
         address[] memory _path,
         uint256 _amountIn,
@@ -150,12 +197,18 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Make a swap from ETH to a token
+    /// @param _path The path of the token swap
+    /// @param _minOut The minimum amount of tokens to swap out
+    /// @param _receiver The address of the account to receive the tokens
     function swapETHToTokens(
         address[] memory _path,
         uint256 _minOut,
         address _receiver
     ) external payable {
-        require(_path[0] == weth, "Router: invalid _path");
+        if (_path[0] != weth) {
+            revert InvalidPath();
+        }
         _transferETHToVault();
         uint256 amountOut = _swap(_path, _minOut, _receiver);
         emit Swap(
@@ -167,13 +220,20 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Make a swap from a token to ETH
+    /// @param _path The path of the token swap
+    /// @param _amountIn The amount of tokens to swap in
+    /// @param _minOut The minimum amount of ETH to swap out
+    /// @param _receiver The address of the account to receive the ETH
     function swapTokensToETH(
         address[] memory _path,
         uint256 _amountIn,
         uint256 _minOut,
         address payable _receiver
     ) external {
-        require(_path[_path.length - 1] == weth, "Router: invalid _path");
+        if (_path[0] != weth) {
+            revert InvalidPath();
+        }
         IERC20(_path[0]).safeTransferFrom(_sender(), vault, _amountIn);
         uint256 amountOut = _swap(_path, _minOut, address(this));
         _transferOutETH(amountOut, _receiver);
@@ -186,6 +246,14 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Increase a position
+    /// @param _path The path of the token swap
+    /// @param _indexToken The token to use as index
+    /// @param _amountIn The amount of tokens to swap in
+    /// @param _minOut The minimum amount of tokens to swap out
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _price The price of the position
     function increasePosition(
         address[] memory _path,
         address _indexToken,
@@ -211,6 +279,13 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Increase a position with ETH
+    /// @param _path The path of the token swap
+    /// @param _indexToken The token to use as index
+    /// @param _minOut The minimum amount of tokens to swap out
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _price The price of the position
     function increasePositionETH(
         address[] memory _path,
         address _indexToken,
@@ -219,7 +294,9 @@ contract Router is IRouter {
         bool _isLong,
         uint256 _price
     ) external payable {
-        require(_path[0] == weth, "Router: invalid _path");
+        if (_path[0] != weth) {
+            revert InvalidPath();
+        }
         if (msg.value > 0) {
             _transferETHToVault();
         }
@@ -236,6 +313,14 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Decrease a position
+    /// @param _collateralToken The token used as collateral
+    /// @param _indexToken The token used as the index
+    /// @param _collateralDelta The collateral delta
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _receiver The address of the account to receive the tokens
+    /// @param _price The price of the position
     function decreasePosition(
         address _collateralToken,
         address _indexToken,
@@ -256,6 +341,13 @@ contract Router is IRouter {
         );
     }
 
+    /// @notice Decrease a position with ETH
+    /// @param _collateralToken The token used as collateral
+    /// @param _indexToken The token used as the index
+    /// @param _collateralDelta The collateral delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _receiver The address of the account to receive the tokens
+    /// @param _price The price of the position
     function decreasePositionETH(
         address _collateralToken,
         address _indexToken,
@@ -277,6 +369,15 @@ contract Router is IRouter {
         _transferOutETH(amountOut, _receiver);
     }
 
+    /// @notice Decrease a position and swap the collateral token
+    /// @param _path The path of the token swap
+    /// @param _indexToken The token used as the index
+    /// @param _collateralDelta The collateral delta
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _receiver The address of the account to receive the tokens
+    /// @param _price The price of the position
+    /// @param _minOut The minimum amount of tokens to swap out
     function decreasePositionAndSwap(
         address[] memory _path,
         address _indexToken,
@@ -300,6 +401,15 @@ contract Router is IRouter {
         _swap(_path, _minOut, _receiver);
     }
 
+    /// @notice Decrease a position and swap the ETH
+    /// @param _path The path of the token swap
+    /// @param _indexToken The token used as the index
+    /// @param _collateralDelta The collateral delta
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if it is short
+    /// @param _receiver The address of the account to receive the tokens
+    /// @param _price The price of the position
+    /// @param _minOut The minimum amount of tokens to swap out
     function decreasePositionAndSwapETH(
         address[] memory _path,
         address _indexToken,
@@ -310,7 +420,9 @@ contract Router is IRouter {
         uint256 _price,
         uint256 _minOut
     ) external {
-        require(_path[_path.length - 1] == weth, "Router: invalid _path");
+        if (_path[0] != weth) {
+            revert InvalidPath();
+        }
         uint256 amount = _decreasePosition(
             _path[0],
             _indexToken,
@@ -333,15 +445,13 @@ contract Router is IRouter {
         uint256 _price
     ) private {
         if (_isLong) {
-            require(
-                IVault(vault).getMaxPrice(_indexToken) <= _price,
-                "Router: mark price higher than limit"
-            );
+            if (IVault(vault).getMaxPrice(_indexToken) > _price) {
+                revert AboveLimit();
+            }
         } else {
-            require(
-                IVault(vault).getMinPrice(_indexToken) >= _price,
-                "Router: mark price lower than limit"
-            );
+            if (IVault(vault).getMinPrice(_indexToken) < _price) {
+                revert BelowLimit();
+            }
         }
 
         IVault(vault).increasePosition(
@@ -363,15 +473,13 @@ contract Router is IRouter {
         uint256 _price
     ) private returns (uint256) {
         if (_isLong) {
-            require(
-                IVault(vault).getMinPrice(_indexToken) >= _price,
-                "Router: mark price lower than limit"
-            );
+            if (IVault(vault).getMinPrice(_indexToken) < _price) {
+                revert BelowLimit();
+            }
         } else {
-            require(
-                IVault(vault).getMaxPrice(_indexToken) <= _price,
-                "Router: mark price higher than limit"
-            );
+            if (IVault(vault).getMaxPrice(_indexToken) > _price) {
+                revert AboveLimit();
+            }
         }
 
         return
@@ -412,7 +520,7 @@ contract Router is IRouter {
             return _vaultSwap(_path[1], _path[2], _minOut, _receiver);
         }
 
-        revert("Router: invalid _path.length");
+        revert InvalidPath();
     }
 
     function _vaultSwap(
@@ -434,7 +542,9 @@ contract Router is IRouter {
             amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
         }
 
-        require(amountOut >= _minOut, "Router: insufficient amountOut");
+        if (amountOut < _minOut) {
+            revert InsufficientAmountOut();
+        }
         return amountOut;
     }
 
@@ -443,10 +553,11 @@ contract Router is IRouter {
     }
 
     function _validatePlugin(address _account) private view {
-        require(plugins[msg.sender], "Router: invalid plugin");
-        require(
-            approvedPlugins[_account][msg.sender],
-            "Router: plugin not approved"
-        );
+        if (!plugins[msg.sender]) {
+            revert InvalidPlugin();
+        }
+        if (!approvedPlugins[_account][msg.sender]) {
+            revert UnapprovedPlugin();
+        }
     }
 }
