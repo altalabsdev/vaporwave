@@ -8,7 +8,16 @@ import "./interfaces/IOrderBook.sol";
 import "../peripherals/interfaces/ITimelock.sol";
 import "./BasePositionManager.sol";
 
+/// Sender does not have function permissions
 error Forbidden();
+/// Wrong token at path index `index`
+error InvalidPath(uint8 index);
+/// Collateral token must be weth
+error InvalidCollateralToken();
+/// Size delta cannot be 0
+error LongDeposit();
+/// Cannot decrease the leverage
+error LongLeverageDecrease();
 
 /// @title Vaporwave Position Manager
 contract PositionManager is BasePositionManager {
@@ -71,7 +80,7 @@ contract PositionManager is BasePositionManager {
         emit SetOrderKeeper(_account, _isActive);
     }
 
-    /// @notice Set a liquidator address
+    /// @notice Set `_account` as a liquidator true/false: `_isActive`
     /// @param _account Address of the liquidator to set
     /// @param _isActive True to add the account as a liquidator, false to remove the account
     function setLiquidator(address _account, bool _isActive)
@@ -82,7 +91,7 @@ contract PositionManager is BasePositionManager {
         emit SetLiquidator(_account, _isActive);
     }
 
-    /// @notice Set a partner address
+    /// @notice Set `_account` as a partner true/false: `_isActive`
     /// @param _account Address of the partner to set
     /// @param _isActive True to add the account as a partner, false to remove the account
     function setPartner(address _account, bool _isActive) external onlyAdmin {
@@ -90,14 +99,14 @@ contract PositionManager is BasePositionManager {
         emit SetPartner(_account, _isActive);
     }
 
-    /// @notice Set the inLegacyMode flag
+    /// @notice Set the inLegacyMode flag to `_inLegacyMode`
     /// @param _inLegacyMode True to turn on legacy mode, false to turn off legacy mode
     function setInLegacyMode(bool _inLegacyMode) external onlyAdmin {
         inLegacyMode = _inLegacyMode;
         emit SetInLegacyMode(_inLegacyMode);
     }
 
-    /// @notice Set the shouldValidateIncreaseOrder flag
+    /// @notice Set the shouldValidateIncreaseOrder flag to `_shouldValidateIncreaseOrder`
     /// @param _shouldValidateIncreaseOrder True to turn on the validation of increase order, false to turn off the validation of increase order
     function setShouldValidateIncreaseOrder(bool _shouldValidateIncreaseOrder)
         external
@@ -124,10 +133,9 @@ contract PositionManager is BasePositionManager {
         bool _isLong,
         uint256 _price
     ) external nonReentrant onlyPartnersOrLegacyMode {
-        require(
-            _path.length == 1 || _path.length == 2,
-            "PositionManager: invalid _path.length"
-        );
+        if (_path.length != 1 && _path.length != 2) {
+            revert InvalidPathLength();
+        }
 
         if (_amountIn > 0) {
             if (_path.length == 1) {
@@ -183,11 +191,12 @@ contract PositionManager is BasePositionManager {
         bool _isLong,
         uint256 _price
     ) external payable nonReentrant onlyPartnersOrLegacyMode {
-        require(
-            _path.length == 1 || _path.length == 2,
-            "PositionManager: invalid _path.length"
-        );
-        require(_path[0] == weth, "PositionManager: invalid _path");
+        if (_path.length != 1 && _path.length != 2) {
+            revert InvalidPathLength();
+        }
+        if (_path[0] != weth) {
+            revert InvalidPath(0);
+        }
 
         if (msg.value > 0) {
             _transferInETH();
@@ -265,10 +274,9 @@ contract PositionManager is BasePositionManager {
         address payable _receiver,
         uint256 _price
     ) external nonReentrant onlyPartnersOrLegacyMode {
-        require(
-            _collateralToken == weth,
-            "PositionManager: invalid _collateralToken"
-        );
+        if (_collateralToken != weth) {
+            revert InvalidCollateralToken();
+        }
 
         uint256 amountOut = _decreasePosition(
             msg.sender,
@@ -302,7 +310,9 @@ contract PositionManager is BasePositionManager {
         uint256 _price,
         uint256 _minOut
     ) external nonReentrant onlyPartnersOrLegacyMode {
-        require(_path.length == 2, "PositionManager: invalid _path.length");
+        if (_path.length != 2) {
+            revert InvalidPathLength();
+        }
 
         uint256 amount = _decreasePosition(
             msg.sender,
@@ -337,11 +347,12 @@ contract PositionManager is BasePositionManager {
         uint256 _price,
         uint256 _minOut
     ) external nonReentrant onlyPartnersOrLegacyMode {
-        require(_path.length == 2, "PositionManager: invalid _path.length");
-        require(
-            _path[_path.length - 1] == weth,
-            "PositionManager: invalid _path"
-        );
+        if (_path.length != 2) {
+            revert InvalidPathLength();
+        }
+        if (_path[_path.length - 1] != weth) {
+            revert InvalidPath(uint8(_path.length - 1));
+        }
 
         uint256 amount = _decreasePosition(
             msg.sender,
@@ -489,7 +500,9 @@ contract PositionManager is BasePositionManager {
         }
 
         // if the position size is not increasing, this is a collateral deposit
-        require(_sizeDelta > 0, "PositionManager: long deposit");
+        if (_sizeDelta == 0) {
+            revert LongDeposit();
+        }
 
         IVault _vault = IVault(vault);
         (uint256 size, uint256 collateral, , , , , , ) = _vault.getPosition(
@@ -518,10 +531,9 @@ contract PositionManager is BasePositionManager {
             increasePositionBufferBps /
             nextCollateral;
 
-        require(
-            nextLeverageWithBuffer >= prevLeverage,
-            "PositionManager: long leverage decrease"
-        );
+        if (nextLeverageWithBuffer < prevLeverage) {
+            revert LongLeverageDecrease();
+        }
 
         return _sizeDelta;
     }
