@@ -7,7 +7,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 import "../tokens/interfaces/IWETH.sol";
-
 import "./interfaces/IRouter.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IOrderBook.sol";
@@ -15,14 +14,24 @@ import "./interfaces/IBasePositionManager.sol";
 
 import "../access/Governable.sol";
 import "../peripherals/interfaces/ITimelock.sol";
-
 import "../referrals/interfaces/IReferralStorage.sol";
 
 /// Function can only be called by an admin
 error AdminRestricted();
-
 /// Sender was not `weth`
 error InvalidSender();
+/// Price is less than the current limit for a long position
+error PriceTooLow();
+/// Price is greater than the current limit for a short position
+error PriceTooHigh();
+/// The size delta provided creates a long size greater than the max
+error MaxLongsExceeded();
+/// The size delta provided creates a short size greater than the max
+error MaxShortsExceeded();
+/// Path length must equal 2
+error InvalidPathLength();
+/// Amount out is less than the minimum out
+error InsufficientAmountOut();
 
 /// @title Vaporwave Base Position Manager
 contract BasePositionManager is
@@ -211,15 +220,13 @@ contract BasePositionManager is
         address _vault = vault;
 
         if (_isLong) {
-            require(
-                IVault(_vault).getMaxPrice(_indexToken) <= _price,
-                "BasePositionManager: mark price higher than limit"
-            );
+            if (IVault(_vault).getMaxPrice(_indexToken) > _price) {
+                revert PriceTooLow();
+            }
         } else {
-            require(
-                IVault(_vault).getMinPrice(_indexToken) >= _price,
-                "BasePositionManager: mark price lower than limit"
-            );
+            if (IVault(_vault).getMinPrice(_indexToken) < _price) {
+                revert PriceTooHigh();
+            }
         }
 
         if (_isLong) {
@@ -229,7 +236,7 @@ contract BasePositionManager is
                 IVault(_vault).guaranteedUsd(_indexToken) + _sizeDelta >
                 maxGlobalLongSize
             ) {
-                revert("BasePositionManager: max global longs exceeded");
+                revert MaxLongsExceeded();
             }
         } else {
             uint256 maxGlobalShortSize = maxGlobalShortSizes[_indexToken];
@@ -238,7 +245,7 @@ contract BasePositionManager is
                 IVault(_vault).globalShortSizes(_indexToken).add(_sizeDelta) >
                 maxGlobalShortSize
             ) {
-                revert("BasePositionManager: max global shorts exceeded");
+                revert MaxShortsExceeded();
             }
         }
 
@@ -270,15 +277,13 @@ contract BasePositionManager is
         address _vault = vault;
 
         if (_isLong) {
-            require(
-                IVault(_vault).getMinPrice(_indexToken) >= _price,
-                "BasePositionManager: mark price lower than limit"
-            );
+            if (IVault(_vault).getMaxPrice(_indexToken) > _price) {
+                revert PriceTooLow();
+            }
         } else {
-            require(
-                IVault(_vault).getMaxPrice(_indexToken) <= _price,
-                "BasePositionManager: mark price higher than limit"
-            );
+            if (IVault(_vault).getMinPrice(_indexToken) < _price) {
+                revert PriceTooHigh();
+            }
         }
 
         address timelock = IVault(_vault).gov();
@@ -353,7 +358,7 @@ contract BasePositionManager is
         if (_path.length == 2) {
             return _vaultSwap(_path[0], _path[1], _minOut, _receiver);
         }
-        revert("BasePositionManager: invalid _path.length");
+        revert InvalidPathLength();
     }
 
     function _vaultSwap(
@@ -363,10 +368,9 @@ contract BasePositionManager is
         address _receiver
     ) internal returns (uint256) {
         uint256 amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
-        require(
-            amountOut >= _minOut,
-            "BasePositionManager: insufficient amountOut"
-        );
+        if (amountOut < _minOut) {
+            revert InsufficientAmountOut();
+        }
         return amountOut;
     }
 
