@@ -8,6 +8,19 @@ import "./interfaces/IPositionRouter.sol";
 import "../peripherals/interfaces/ITimelock.sol";
 import "./BasePositionManager.sol";
 
+/// Sender does not have function permissions
+error Forbidden();
+/// The request has expired
+error RequestExpired();
+/// The minimum delay has not yet passed
+error DelayNotPassed();
+/// The execution fee is less than the minimum fee
+error InvalidExecutionFee();
+/// Incorrect msg.value sent with the transaction
+error InvalidValue();
+/// Invalid token swap path
+error InvalidPath();
+
 /// @title Vaporwave Position Router
 contract PositionRouter is BasePositionManager, IPositionRouter {
     using SafeERC20 for IERC20;
@@ -183,6 +196,9 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         minExecutionFee = _minExecutionFee;
     }
 
+    /// @notice Set `_account` as a position keeper true/false: `_isActive`
+    /// @param _account Address of the account to set as a position keeper
+    /// @param _isActive True/false to set the account as a position keeper
     function setPositionKeeper(address _account, bool _isActive)
         external
         onlyAdmin
@@ -191,16 +207,25 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         emit SetPositionKeeper(_account, _isActive);
     }
 
+    /// @notice Set the minimum execution fee to `_minExecutionFee`
+    /// @param _minExecutionFee The nex minimum execution fee
     function setMinExecutionFee(uint256 _minExecutionFee) external onlyAdmin {
         minExecutionFee = _minExecutionFee;
         emit SetMinExecutionFee(_minExecutionFee);
     }
 
+    /// @notice Set the isLeverageEnabled flag to `_isLeverageEnabled`
+    /// @param _isLeverageEnabled True to enable leverage, false otherwise
     function setIsLeverageEnabled(bool _isLeverageEnabled) external onlyAdmin {
         isLeverageEnabled = _isLeverageEnabled;
         emit SetIsLeverageEnabled(_isLeverageEnabled);
     }
 
+    /// @notice Set the delay values
+    /// @dev Emits an event `SetDelayValues`
+    /// @param _minBlockDelayKeeper The minimum block delay for the keeper
+    /// @param _minTimeDelayPublic The minimum time delay for the public
+    /// @param _maxTimeDelay The maximum time delay
     function setDelayValues(
         uint256 _minBlockDelayKeeper,
         uint256 _minTimeDelayPublic,
@@ -216,6 +241,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
+    /// @notice Set the request keys start values
+    /// @dev Emits an event `SetRequestKeysStartValues`
+    /// @param _increasePositionRequestKeysStart The start value for the increase position request key
+    /// @param _decreasePositionRequestKeysStart The start value for the decrease position request key
     function setRequestKeysStartValues(
         uint256 _increasePositionRequestKeysStart,
         uint256 _decreasePositionRequestKeysStart
@@ -229,6 +258,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
+    /// @notice Execute increase positions
+    /// @dev Function executes all increase positions from index `increasePositionRequestKeysStart` to `_endIndex`
+    /// @param _endIndex The index of the increase position to stop execution
+    /// @param _executionFeeReceiver The address to receive the execution fees
     function executeIncreasePositions(
         uint256 _endIndex,
         address payable _executionFeeReceiver
@@ -277,6 +310,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         increasePositionRequestKeysStart = index;
     }
 
+    /// @notice Execute decrease positions
+    /// @dev Function executes all decrease positions from index `decreasePositionRequestKeysStart` to `_endIndex`
+    /// @param _endIndex The index of the increase position to stop execution
+    /// @param _executionFeeReceiver The address to receive the execution fees
     function executeDecreasePositions(
         uint256 _endIndex,
         address payable _executionFeeReceiver
@@ -324,6 +361,16 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         decreasePositionRequestKeysStart = index;
     }
 
+    /// @notice Create an increase position
+    /// @param _path The path of the token swap
+    /// @param _indexToken The index token
+    /// @param _amountIn The amount of tokens to swap in
+    /// @param _minOut The minimun tokens to swap out
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if short
+    /// @param _acceptablePrice The acceptable price
+    /// @param _executionFee The execution fee
+    /// @param _referralCode The trader's referral code
     function createIncreasePosition(
         address[] memory _path,
         address _indexToken,
@@ -335,18 +382,15 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _executionFee,
         bytes32 _referralCode
     ) external payable nonReentrant {
-        require(
-            _executionFee >= minExecutionFee,
-            "PositionRouter: invalid executionFee"
-        );
-        require(
-            msg.value == _executionFee,
-            "PositionRouter: invalid msg.value"
-        );
-        require(
-            _path.length == 1 || _path.length == 2,
-            "PositionRouter: invalid _path length"
-        );
+        if (_executionFee < minExecutionFee) {
+            revert InvalidExecutionFee();
+        }
+        if (msg.value != _executionFee) {
+            revert InvalidValue();
+        }
+        if (_path.length != 1 && _path.length != 2) {
+            revert InvalidPathLength();
+        }
 
         _transferInETH();
         _setTraderReferralCode(_referralCode);
@@ -374,6 +418,15 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
+    /// @notice Create an increase position with ETH
+    /// @param _path The path of the token swap
+    /// @param _indexToken The index token
+    /// @param _minOut The minimun tokens to swap out
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if short
+    /// @param _acceptablePrice The acceptable price
+    /// @param _executionFee The execution fee
+    /// @param _referralCode The trader's referral code
     function createIncreasePositionETH(
         address[] memory _path,
         address _indexToken,
@@ -384,19 +437,18 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _executionFee,
         bytes32 _referralCode
     ) external payable nonReentrant {
-        require(
-            _executionFee >= minExecutionFee,
-            "PositionRouter: invalid executionFee"
-        );
-        require(
-            msg.value >= _executionFee,
-            "PositionRouter: invalid msg.value"
-        );
-        require(
-            _path.length == 1 || _path.length == 2,
-            "PositionRouter: invalid _path length"
-        );
-        require(_path[0] == weth, "PositionRouter: invalid _path");
+        if (_executionFee < minExecutionFee) {
+            revert InvalidExecutionFee();
+        }
+        if (msg.value != _executionFee) {
+            revert InvalidValue();
+        }
+        if (_path.length != 1 && _path.length != 2) {
+            revert InvalidPathLength();
+        }
+        if (_path[0] != weth) {
+            revert InvalidPath();
+        }
 
         _transferInETH();
         _setTraderReferralCode(_referralCode);
@@ -417,6 +469,17 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
+    /// @notice Create an decrease position
+    /// @param _path The path of the token swap
+    /// @param _indexToken The index token
+    /// @param _collateralDelta The collateral delta
+    /// @param _sizeDelta The size delta
+    /// @param _isLong True if the position is long, false if short
+    /// @param _receiver The receiver
+    /// @param _acceptablePrice The acceptable price
+    /// @param _minOut The minimum amount to swap out
+    /// @param _executionFee The execution fee
+    /// @param _withdrawETH True if withdrawing ETH, false otherwise
     function createDecreasePosition(
         address[] memory _path,
         address _indexToken,
@@ -429,24 +492,20 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 _executionFee,
         bool _withdrawETH
     ) external payable nonReentrant {
-        require(
-            _executionFee >= minExecutionFee,
-            "PositionRouter: invalid executionFee"
-        );
-        require(
-            msg.value == _executionFee,
-            "PositionRouter: invalid msg.value"
-        );
-        require(
-            _path.length == 1 || _path.length == 2,
-            "PositionRouter: invalid _path length"
-        );
+        if (_executionFee < minExecutionFee) {
+            revert InvalidExecutionFee();
+        }
+        if (msg.value != _executionFee) {
+            revert InvalidValue();
+        }
+        if (_path.length != 1 && _path.length != 2) {
+            revert InvalidPathLength();
+        }
 
         if (_withdrawETH) {
-            require(
-                _path[_path.length - 1] == weth,
-                "PositionRouter: invalid _path"
-            );
+            if (_path[_path.length - 1] != weth) {
+                revert InvalidPath();
+            }
         }
 
         _transferInETH();
@@ -466,6 +525,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
+    /// @notice Get the length of the request queue
     function getRequestQueueLengths()
         external
         view
@@ -484,6 +544,11 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         );
     }
 
+    /// @notice Execute an increase position
+    /// @dev Emit an event `ExecuteIncreasePosition`
+    /// @param _key The key for the request
+    /// @param _executionFeeReceiver The account to receive the execution fee
+    /// @return The execution success
     function executeIncreasePosition(
         bytes32 _key,
         address payable _executionFeeReceiver
@@ -555,6 +620,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
+    /// @notice Cancel an increase position
+    /// @param _key The key for the request
+    /// @param _executionFeeReceiver The account to receiver the execution fee
+    /// @return The success of the cancellation
     function cancelIncreasePosition(
         bytes32 _key,
         address payable _executionFeeReceiver
@@ -607,6 +676,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
+    /// @notice Execute a decrease position
+    /// @param _key The key of the request
+    /// @param _executionFeeReceiver The account to receive the execution fee
+    /// @return The success of the execution
     function executeDecreasePosition(
         bytes32 _key,
         address payable _executionFeeReceiver
@@ -673,6 +746,10 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
+    /// @notice Cancel an decrease position
+    /// @param _key The key for the request
+    /// @param _executionFeeReceiver The account to receiver the execution fee
+    /// @return The success of the cancellation
     function cancelDecreasePosition(
         bytes32 _key,
         address payable _executionFeeReceiver
@@ -714,14 +791,9 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return true;
     }
 
-    function getRequestKey(address _account, uint256 _index)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encodePacked(_account, _index));
-    }
-
+    /// @notice Get the request path for an increase position
+    /// @param _key The key for the request
+    /// @return The token swap path for the request
     function getIncreasePositionRequestPath(bytes32 _key)
         public
         view
@@ -731,6 +803,9 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         return request.path;
     }
 
+    /// @notice Get the request path for a decrease position
+    /// @param _key The key for the request
+    /// @return The token swap path for the request
     function getDecreasePositionRequestPath(bytes32 _key)
         public
         view
@@ -738,6 +813,17 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     {
         DecreasePositionRequest memory request = decreasePositionRequests[_key];
         return request.path;
+    }
+
+    /// @notice Get a request key
+    /// @param _account The account associated with the request
+    /// @param _index The index of the requestd
+    function getRequestKey(address _account, uint256 _index)
+        public
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(_account, _index));
     }
 
     function _setTraderReferralCode(bytes32 _referralCode) internal {
@@ -755,26 +841,27 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         address _account
     ) internal view returns (bool) {
         if (_positionBlockTime + maxTimeDelay <= block.timestamp) {
-            revert("PositionRouter: request has expired");
+            revert RequestExpired();
         }
 
         bool isKeeperCall = msg.sender == address(this) ||
             isPositionKeeper[msg.sender];
 
         if (!isLeverageEnabled && !isKeeperCall) {
-            revert("PositionRouter: forbidden");
+            revert Forbidden();
         }
 
         if (isKeeperCall) {
             return _positionBlockNumber + minBlockDelayKeeper <= block.number;
         }
 
-        require(msg.sender == _account, "PositionRouter: forbidden");
+        if (msg.sender != _account) {
+            revert Forbidden();
+        }
 
-        require(
-            _positionBlockTime + minTimeDelayPublic <= block.timestamp,
-            "PositionRouter: min delay not yet passed"
-        );
+        if (_positionBlockTime + minTimeDelayPublic > block.timestamp) {
+            revert DelayNotPassed();
+        }
 
         return true;
     }
@@ -788,19 +875,20 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             isPositionKeeper[msg.sender];
 
         if (!isLeverageEnabled && !isKeeperCall) {
-            revert("PositionRouter: forbidden");
+            revert Forbidden();
         }
 
         if (isKeeperCall) {
             return _positionBlockNumber + minBlockDelayKeeper <= block.number;
         }
 
-        require(msg.sender == _account, "PositionRouter: forbidden");
+        if (msg.sender != _account) {
+            revert Forbidden();
+        }
 
-        require(
-            _positionBlockTime + minTimeDelayPublic <= block.timestamp,
-            "PositionRouter: min delay not yet passed"
-        );
+        if (_positionBlockTime + minTimeDelayPublic > block.timestamp) {
+            revert DelayNotPassed();
+        }
 
         return true;
     }
