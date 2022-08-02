@@ -28,7 +28,7 @@ error PriceTooHigh();
 error MaxLongsExceeded();
 /// The size delta provided creates a short size greater than the max
 error MaxShortsExceeded();
-/// Path length must equal 2
+/// Path has an incorrect number of elements
 error InvalidPathLength();
 /// Amount out is less than the minimum out
 error InsufficientAmountOut();
