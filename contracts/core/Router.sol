@@ -12,13 +12,19 @@ import "./interfaces/IRouter.sol";
 
 /// Contract does not have governor permissions
 error GovernorRestricted();
-
+/// Sender must be `weth`
 error InvalidSender();
+/// Invalid token swap path
 error InvalidPath();
-error AboveLimit();
-error BelowLimit();
+/// Price is less than the limit for a long position
+error PriceTooLow();
+/// Price is greater than the limit for a short position
+error PriceTooHigh();
+/// Sender is not a plugin
 error InvalidPlugin();
+/// sender is not approved as a plugin
 error UnapprovedPlugin();
+/// Amount out is less than the minimum out
 error InsufficientAmountOut();
 
 /// @title Vaporwave Router
@@ -173,28 +179,6 @@ contract Router is IRouter {
     function directPoolDeposit(address _token, uint256 _amount) external {
         IERC20(_token).safeTransferFrom(_sender(), vault, _amount);
         IVault(vault).directPoolDeposit(_token);
-    }
-
-    /// @notice Make a token swap
-    /// @param _path The path of the token swap
-    /// @param _amountIn The amount of tokens to swap in
-    /// @param _minOut The minimum amount of tokens to swap out
-    /// @param _receiver The address of the account to receive the tokens
-    function swap(
-        address[] memory _path,
-        uint256 _amountIn,
-        uint256 _minOut,
-        address _receiver
-    ) public override {
-        IERC20(_path[0]).safeTransferFrom(_sender(), vault, _amountIn);
-        uint256 amountOut = _swap(_path, _minOut, _receiver);
-        emit Swap(
-            msg.sender,
-            _path[0],
-            _path[_path.length - 1],
-            _amountIn,
-            amountOut
-        );
     }
 
     /// @notice Make a swap from ETH to a token
@@ -437,6 +421,28 @@ contract Router is IRouter {
         _transferOutETH(amountOut, _receiver);
     }
 
+    /// @notice Make a token swap
+    /// @param _path The path of the token swap
+    /// @param _amountIn The amount of tokens to swap in
+    /// @param _minOut The minimum amount of tokens to swap out
+    /// @param _receiver The address of the account to receive the tokens
+    function swap(
+        address[] memory _path,
+        uint256 _amountIn,
+        uint256 _minOut,
+        address _receiver
+    ) public override {
+        IERC20(_path[0]).safeTransferFrom(_sender(), vault, _amountIn);
+        uint256 amountOut = _swap(_path, _minOut, _receiver);
+        emit Swap(
+            msg.sender,
+            _path[0],
+            _path[_path.length - 1],
+            _amountIn,
+            amountOut
+        );
+    }
+
     function _increasePosition(
         address _collateralToken,
         address _indexToken,
@@ -446,11 +452,11 @@ contract Router is IRouter {
     ) private {
         if (_isLong) {
             if (IVault(vault).getMaxPrice(_indexToken) > _price) {
-                revert AboveLimit();
+                revert PriceTooLow();
             }
         } else {
             if (IVault(vault).getMinPrice(_indexToken) < _price) {
-                revert BelowLimit();
+                revert PriceTooHigh();
             }
         }
 
@@ -474,11 +480,11 @@ contract Router is IRouter {
     ) private returns (uint256) {
         if (_isLong) {
             if (IVault(vault).getMinPrice(_indexToken) < _price) {
-                revert BelowLimit();
+                revert PriceTooHigh();
             }
         } else {
             if (IVault(vault).getMaxPrice(_indexToken) > _price) {
-                revert AboveLimit();
+                revert PriceTooLow();
             }
         }
 
