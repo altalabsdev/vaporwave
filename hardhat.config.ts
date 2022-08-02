@@ -17,6 +17,9 @@ const config: HardhatUserConfig = {
         version: "0.6.6", // AuroraRouter.sol | AuroraChef.sol
       },
       {
+        version: "0.6.12", // Trisolaris
+      },
+      {
         version: "0.8.15",
         settings: {
           viaIR: true,
