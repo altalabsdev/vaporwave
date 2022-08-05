@@ -12,8 +12,18 @@ import "../tokens/interfaces/IUSDV.sol";
 import "../tokens/interfaces/IMintable.sol";
 import "../access/Governable.sol";
 
+/// Caller is not a valid handler
+error InvalidHandler();
+/// Cooldown duration greater than the max allowed
 error InvalidCooldownDuration();
+/// The contract is in private mode
 error PrivateMode();
+/// Amount must be greater than 0
+error InvalidAmount();
+/// Amount out must be greater than the minimum out
+error InsufficientOutput();
+/// Must wait the cooldown duration
+error Cooldown();
 
 /// @title Vaporwave VLP Manager
 contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
@@ -24,17 +34,22 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
     uint256 public constant USDV_DECIMALS = 18;
     uint256 public constant MAX_COOLDOWN_DURATION = 48 hours;
 
-    IVault public vault;
-    address public usdv;
-    address public vlp;
+    /// The vault address
+    IVault public immutable vault;
+    /// USD Vaporwave token address
+    address public immutable usdv;
+    /// VWAVE LP token address
+    address public immutable vlp;
 
     uint256 public override cooldownDuration;
+    /// Mapping of addresses to the time they last added liquidity
     mapping(address => uint256) public override lastAddedAt;
 
     uint256 public aumAddition;
     uint256 public aumDeduction;
 
     bool public inPrivateMode;
+    /// Mapping of handler addresses
     mapping(address => bool) public isHandler;
 
     event AddLiquidity(
@@ -128,7 +143,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
             );
     }
 
-    /// @notice Add liquidity for a third-party account
+    /// @notice Add liquidity for `_account`
     /// @param _fundingAccount Address of the funding account
     /// @param _account Address of the liquidity account
     /// @param _token Address of the token to add liquidity to
@@ -284,7 +299,9 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
         uint256 _minUsdv,
         uint256 _minVlp
     ) private returns (uint256) {
-        require(_amount > 0, "VlpManager: invalid _amount");
+        if (_amount == 0) {
+            revert InvalidAmount();
+        }
 
         // calculate aum before buyUSDV
         uint256 aumInUsdv = getAumInUsdv(true);
@@ -296,12 +313,16 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
             _amount
         );
         uint256 usdvAmount = vault.buyUSDV(_token, address(this));
-        require(usdvAmount >= _minUsdv, "VlpManager: insufficient USDV output");
+        if (usdvAmount < _minUsdv) {
+            revert InsufficientOutput();
+        }
 
         uint256 mintAmount = aumInUsdv == 0
             ? usdvAmount
             : usdvAmount.mul(vlpSupply).div(aumInUsdv);
-        require(mintAmount >= _minVlp, "VlpManager: insufficient VLP output");
+        if (mintAmount < _minVlp) {
+            revert InsufficientOutput();
+        }
 
         IMintable(vlp).mint(_account, mintAmount);
 
@@ -327,11 +348,12 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
         uint256 _minOut,
         address _receiver
     ) private returns (uint256) {
-        require(_vlpAmount > 0, "VlpManager: invalid _vlpAmount");
-        require(
-            lastAddedAt[_account].add(cooldownDuration) <= block.timestamp,
-            "VlpManager: cooldown duration not yet passed"
-        );
+        if (_vlpAmount == 0) {
+            revert InvalidAmount();
+        }
+        if (lastAddedAt[_account].add(cooldownDuration) <= block.timestamp) {
+            revert Cooldown();
+        }
 
         // calculate aum before sellUSDV
         uint256 aumInUsdv = getAumInUsdv(false);
@@ -347,7 +369,9 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
 
         IERC20(usdv).transfer(address(vault), usdvAmount);
         uint256 amountOut = vault.sellUSDV(_tokenOut, _receiver);
-        require(amountOut >= _minOut, "VlpManager: insufficient output");
+        if (amountOut < _minOut) {
+            revert InsufficientOutput();
+        }
 
         emit RemoveLiquidity(
             _account,
@@ -363,6 +387,8 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
     }
 
     function _validateHandler() private view {
-        require(isHandler[msg.sender], "VlpManager: forbidden");
+        if (!isHandler[msg.sender]) {
+            revert InvalidHandler();
+        }
     }
 }
