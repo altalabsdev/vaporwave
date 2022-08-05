@@ -118,7 +118,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice increase a position
     /// @param _path path of the token swap
-    /// @param _indexToken address of the index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _amountIn amount of the token to swap in
     /// @param _minOut minimum amount of token to swap out
     /// @param _sizeDelta size delta of the position
@@ -178,7 +178,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice increase a position with ETH
     /// @param _path path of the token swap
-    /// @param _indexToken address of the index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _minOut minimum amount of token to swap out
     /// @param _sizeDelta size delta of the position
     /// @param _isLong true if the position is long, false if the position is short
@@ -230,7 +230,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice decrease a position
     /// @param _collateralToken address of the collateral token
-    /// @param _indexToken address of the index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta collateral delta of the position
     /// @param _sizeDelta size delta of the position
     /// @param _isLong true if the position is long, false if the position is short
@@ -259,7 +259,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice decrease a position
     /// @param _collateralToken address of the collateral token
-    /// @param _indexToken address of the index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta collateral delta of the position
     /// @param _sizeDelta size delta of the position
     /// @param _isLong true if the position is long, false if the position is short
@@ -293,7 +293,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice decrease a position and swap the tokens
     /// @param _path path of the token swap
-    /// @param _indexToken address of the index token
+    /// @param _indexToken address of the token to long or short
     /// @param _collateralDelta collateral delta of the position
     /// @param _sizeDelta size delta of the position
     /// @param _isLong true if the position is long, false if the position is short
@@ -330,7 +330,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice decrease a position and swap ETH
     /// @param _path path of the token swap
-    /// @param _indexToken address of the index token
+    /// @param _indexToken address of the token to long or short
     /// @param _collateralDelta collateral delta of the position
     /// @param _sizeDelta size delta of the position
     /// @param _isLong true if the position is long, false if the position is short
@@ -371,7 +371,7 @@ contract PositionManager is BasePositionManager {
 
     /// @notice liquidate a position
     /// @param _collateralToken address of the collateral token
-    /// @param _indexToken address of the index token
+    /// @param _indexToken address of the token to long or short
     /// @param _isLong true if the position is long, false if the position is short
     /// @param _feeReceiver address to receive the fees
     function liquidatePosition(

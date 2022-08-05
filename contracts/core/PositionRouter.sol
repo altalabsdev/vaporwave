@@ -182,7 +182,9 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     );
 
     modifier onlyPositionKeeper() {
-        require(isPositionKeeper[msg.sender], "PositionRouter: forbidden");
+        if (!isPositionKeeper[msg.sender]) {
+            revert Forbidden();
+        }
         _;
     }
 
@@ -363,7 +365,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
 
     /// @notice Create an increase position
     /// @param _path The path of the token swap
-    /// @param _indexToken The index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _amountIn The amount of tokens to swap in
     /// @param _minOut The minimun tokens to swap out
     /// @param _sizeDelta The size delta
@@ -420,7 +422,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
 
     /// @notice Create an increase position with ETH
     /// @param _path The path of the token swap
-    /// @param _indexToken The index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _minOut The minimun tokens to swap out
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if short
@@ -471,7 +473,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
 
     /// @notice Create an decrease position
     /// @param _path The path of the token swap
-    /// @param _indexToken The index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta The collateral delta
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if short

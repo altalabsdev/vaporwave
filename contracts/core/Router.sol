@@ -27,6 +27,7 @@ error UnapprovedPlugin();
 /// Amount out is less than the minimum out
 error InsufficientAmountOut();
 
+// TODO import Ownable
 /// @title Vaporwave Router
 contract Router is IRouter {
     using SafeMath for uint256;
@@ -35,11 +36,16 @@ contract Router is IRouter {
 
     address public gov;
 
+    /// Wrapped Ether (WETH) token
     address public weth; // wrapped ETH
+    /// USD Vaporwave token
     address public usdv;
+    /// Vault address
     address public vault;
 
+    /// Mapping of plugin addresses
     mapping(address => bool) public plugins;
+    /// Mapping of accounts to their approved plugins
     mapping(address => mapping(address => bool)) public approvedPlugins;
 
     event Swap(
@@ -123,7 +129,7 @@ contract Router is IRouter {
     /// @notice Increase the position of `_account` with `_collateralToken` collateral and `_indexToken` index
     /// @param _account The address of the account to increase the position of
     /// @param _collateralToken The token to use as collateral
-    /// @param _indexToken The token to use as index
+    /// @param _indexToken The address of the token to long or short
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if it is short
     function pluginIncreasePosition(
@@ -146,7 +152,7 @@ contract Router is IRouter {
     /// @notice Decrease the position of `_account` with `_collateralToken` collateral and `_indexToken` index
     /// @param _account The address of the account to decrease the position of
     /// @param _collateralToken The token to use as collateral
-    /// @param _indexToken The token to use as index
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta The collateral delta
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if it is short
@@ -232,7 +238,7 @@ contract Router is IRouter {
 
     /// @notice Increase a position
     /// @param _path The path of the token swap
-    /// @param _indexToken The token to use as index
+    /// @param _indexToken The address of the token to long or short
     /// @param _amountIn The amount of tokens to swap in
     /// @param _minOut The minimum amount of tokens to swap out
     /// @param _sizeDelta The size delta
@@ -265,7 +271,7 @@ contract Router is IRouter {
 
     /// @notice Increase a position with ETH
     /// @param _path The path of the token swap
-    /// @param _indexToken The token to use as index
+    /// @param _indexToken The address of the token to long or short
     /// @param _minOut The minimum amount of tokens to swap out
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if it is short
@@ -299,7 +305,7 @@ contract Router is IRouter {
 
     /// @notice Decrease a position
     /// @param _collateralToken The token used as collateral
-    /// @param _indexToken The token used as the index
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta The collateral delta
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if it is short
@@ -327,7 +333,7 @@ contract Router is IRouter {
 
     /// @notice Decrease a position with ETH
     /// @param _collateralToken The token used as collateral
-    /// @param _indexToken The token used as the index
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta The collateral delta
     /// @param _isLong True if the position is long, false if it is short
     /// @param _receiver The address of the account to receive the tokens
@@ -355,7 +361,7 @@ contract Router is IRouter {
 
     /// @notice Decrease a position and swap the collateral token
     /// @param _path The path of the token swap
-    /// @param _indexToken The token used as the index
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta The collateral delta
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if it is short
@@ -387,7 +393,7 @@ contract Router is IRouter {
 
     /// @notice Decrease a position and swap the ETH
     /// @param _path The path of the token swap
-    /// @param _indexToken The token used as the index
+    /// @param _indexToken The address of the token to long or short
     /// @param _collateralDelta The collateral delta
     /// @param _sizeDelta The size delta
     /// @param _isLong True if the position is long, false if it is short

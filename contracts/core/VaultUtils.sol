@@ -31,13 +31,7 @@ contract VaultUtils is IVaultUtils, Governable {
         vault = _vault;
     }
 
-    function updateCumulativeFundingRate(
-        address, /* _collateralToken */
-        address /* _indexToken */
-    ) public pure override returns (bool) {
-        return true;
-    }
-
+    /// @dev Function does nothing, included to satisfy the IVaultUtils interface
     function validateIncreasePosition(
         address, /* _account */
         address, /* _collateralToken */
@@ -48,6 +42,7 @@ contract VaultUtils is IVaultUtils, Governable {
         // no additional validations
     }
 
+    /// @dev Function does nothing, included to satisfy the IVaultUtils interface
     function validateDecreasePosition(
         address, /* _account */
         address, /* _collateralToken */
@@ -60,39 +55,6 @@ contract VaultUtils is IVaultUtils, Governable {
         // no additional validations
     }
 
-    function getPosition(
-        address _account,
-        address _collateralToken,
-        address _indexToken,
-        bool _isLong
-    ) internal view returns (Position memory) {
-        IVault _vault = vault;
-        Position memory position;
-        {
-            (
-                uint256 size,
-                uint256 collateral,
-                uint256 averagePrice,
-                uint256 entryFundingRate, /* reserveAmount */ /* realisedPnl */ /* hasProfit */
-                ,
-                ,
-                ,
-                uint256 lastIncreasedTime
-            ) = _vault.getPosition(
-                    _account,
-                    _collateralToken,
-                    _indexToken,
-                    _isLong
-                );
-            position.size = size;
-            position.collateral = collateral;
-            position.averagePrice = averagePrice;
-            position.entryFundingRate = entryFundingRate;
-            position.lastIncreasedTime = lastIncreasedTime;
-        }
-        return position;
-    }
-
     function validateLiquidation(
         address _account,
         address _collateralToken,
@@ -100,7 +62,7 @@ contract VaultUtils is IVaultUtils, Governable {
         bool _isLong,
         bool _raise
     ) public view override returns (uint256, uint256) {
-        Position memory position = getPosition(
+        Position memory position = _getPosition(
             _account,
             _collateralToken,
             _indexToken,
@@ -181,6 +143,9 @@ contract VaultUtils is IVaultUtils, Governable {
         return vault.cumulativeFundingRates(_collateralToken);
     }
 
+    /// @notice Get the position fee
+    /// @param _sizeDelta The change in the position size
+    /// @return The position fee
     function getPositionFee(
         address, /* _account */
         address, /* _collateralToken */
@@ -342,5 +307,46 @@ contract VaultUtils is IVaultUtils, Governable {
         }
         uint256 taxBps = _taxBasisPoints.mul(averageDiff).div(targetAmount);
         return _feeBasisPoints.add(taxBps);
+    }
+
+    /// @dev Always returns true, included to satisfy the IVaultUtils interface
+    function updateCumulativeFundingRate(
+        address, /* _collateralToken */
+        address /* _indexToken */
+    ) public pure override returns (bool) {
+        return true;
+    }
+
+    function _getPosition(
+        address _account,
+        address _collateralToken,
+        address _indexToken,
+        bool _isLong
+    ) internal view returns (Position memory) {
+        IVault _vault = vault;
+        Position memory position;
+        {
+            (
+                uint256 size,
+                uint256 collateral,
+                uint256 averagePrice,
+                uint256 entryFundingRate, /* reserveAmount */ /* realisedPnl */ /* hasProfit */
+                ,
+                ,
+                ,
+                uint256 lastIncreasedTime
+            ) = _vault.getPosition(
+                    _account,
+                    _collateralToken,
+                    _indexToken,
+                    _isLong
+                );
+            position.size = size;
+            position.collateral = collateral;
+            position.averagePrice = averagePrice;
+            position.entryFundingRate = entryFundingRate;
+            position.lastIncreasedTime = lastIncreasedTime;
+        }
+        return position;
     }
 }
