@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../core/interfaces/IVault.sol";
 import "../core/interfaces/IVaultPriceFeed.sol";
@@ -11,23 +11,33 @@ import "../tokens/interfaces/IYieldToken.sol";
 import "../amm/interfaces/IPancakeFactory.sol";
 
 import "../staking/interfaces/IVester.sol";
-import "../access/Governable.sol";
 
+// TODO add NatSpec
 /// @title Vaporwave Reader
-contract Reader is Governable {
-    using SafeMath for uint256;
-
+contract Reader is Ownable {
+    /// USDV decimals
+    uint8 public constant USDV_DECIMALS = 18;
+    /// Number of properties for a position
+    uint8 public constant POSITION_PROPS_LENGTH = 9;
+    /// Helper to avoid truncation errors in basis points calculations
     uint256 public constant BASIS_POINTS_DIVISOR = 10000;
-    uint256 public constant POSITION_PROPS_LENGTH = 9;
-    uint256 public constant PRICE_PRECISION = 10**30;
-    uint256 public constant USDV_DECIMALS = 18;
+    /// Helper to avoid truncation errors in price calculations
+    uint256 public constant PRICE_PRECISION = 1e30;
 
+    /// True if there is a max global short size
     bool public hasMaxGlobalShortSizes;
 
-    function setConfig(bool _hasMaxGlobalShortSizes) public onlyGov {
+    /// @notice Set if the contract has max global short sizes to `_hasMaxGlobalShortSizes`
+    /// @param _hasMaxGlobalShortSizes True if the contract has max global short sizes
+    function setConfig(bool _hasMaxGlobalShortSizes) public onlyOwner {
         hasMaxGlobalShortSizes = _hasMaxGlobalShortSizes;
     }
 
+    /// @notice Get the max amount in
+    /// @param _vault The vault address
+    /// @param _tokenIn The address of the token to swap in
+    /// @param _tokenOut The address of the token to swap out
+    /// @return The max amount in
     function getMaxAmountIn(
         IVault _vault,
         address _tokenIn,
@@ -51,12 +61,11 @@ contract Reader is Governable {
             if (subAmount >= poolAmount) {
                 return 0;
             }
-            uint256 availableAmount = poolAmount.sub(subAmount);
-            amountIn = availableAmount
-                .mul(priceOut)
-                .div(priceIn)
-                .mul(10**tokenInDecimals)
-                .div(10**tokenOutDecimals);
+            uint256 availableAmount = poolAmount - subAmount;
+            amountIn =
+                (((availableAmount * priceOut) / priceIn) *
+                    (10**tokenInDecimals)) /
+                (10**tokenOutDecimals);
         }
 
         uint256 maxUsdvAmount = _vault.maxUsdvAmounts(_tokenIn);
@@ -66,13 +75,11 @@ contract Reader is Governable {
                 return 0;
             }
 
-            uint256 maxAmountIn = maxUsdvAmount.sub(
-                _vault.usdvAmounts(_tokenIn)
-            );
-            maxAmountIn = maxAmountIn.mul(10**tokenInDecimals).div(
-                10**USDV_DECIMALS
-            );
-            maxAmountIn = maxAmountIn.mul(PRICE_PRECISION).div(priceIn);
+            uint256 maxAmountIn = maxUsdvAmount - _vault.usdvAmounts(_tokenIn);
+            maxAmountIn =
+                (maxAmountIn * (10**tokenInDecimals)) /
+                (10**USDV_DECIMALS);
+            maxAmountIn = (maxAmountIn * PRICE_PRECISION) / priceIn;
 
             if (amountIn > maxAmountIn) {
                 return maxAmountIn;
@@ -82,6 +89,12 @@ contract Reader is Governable {
         return amountIn;
     }
 
+    /// @notice Get the amount out
+    /// @param _vault The vault address
+    /// @param _tokenIn The address of the token to swap in
+    /// @param _tokenOut The address of the token to swap out
+    /// @param _amountIn The amount in
+    /// @return A tuple (amount out after fees, fee amount)
     function getAmountOut(
         IVault _vault,
         address _tokenIn,
@@ -95,10 +108,10 @@ contract Reader is Governable {
 
         uint256 feeBasisPoints;
         {
-            uint256 usdvAmount = _amountIn.mul(priceIn).div(PRICE_PRECISION);
-            usdvAmount = usdvAmount.mul(10**USDV_DECIMALS).div(
-                10**tokenInDecimals
-            );
+            uint256 usdvAmount = (_amountIn * priceIn) / PRICE_PRECISION;
+            usdvAmount =
+                (usdvAmount * (10**USDV_DECIMALS)) /
+                (10**tokenInDecimals);
 
             bool isStableSwap = _vault.stableTokens(_tokenIn) &&
                 _vault.stableTokens(_tokenOut);
@@ -129,15 +142,14 @@ contract Reader is Governable {
         }
 
         uint256 priceOut = _vault.getMaxPrice(_tokenOut);
-        uint256 amountOut = _amountIn.mul(priceIn).div(priceOut);
-        amountOut = amountOut.mul(10**tokenOutDecimals).div(
-            10**tokenInDecimals
-        );
+        uint256 amountOut = (_amountIn * priceIn) / priceOut;
+        amountOut =
+            (amountOut * (10**tokenOutDecimals)) /
+            (10**tokenInDecimals);
 
-        uint256 amountOutAfterFees = amountOut
-            .mul(BASIS_POINTS_DIVISOR.sub(feeBasisPoints))
-            .div(BASIS_POINTS_DIVISOR);
-        uint256 feeAmount = amountOut.sub(amountOutAfterFees);
+        uint256 amountOutAfterFees = (amountOut *
+            (BASIS_POINTS_DIVISOR - feeBasisPoints)) / BASIS_POINTS_DIVISOR;
+        uint256 feeAmount = amountOut - amountOutAfterFees;
 
         return (amountOutAfterFees, feeAmount);
     }
@@ -159,8 +171,8 @@ contract Reader is Governable {
         uint256 priceIn = _vault.getMinPrice(_tokenIn);
         uint256 tokenInDecimals = _vault.tokenDecimals(_tokenIn);
 
-        uint256 usdvAmount = _amountIn.mul(priceIn).div(PRICE_PRECISION);
-        usdvAmount = usdvAmount.mul(10**USDV_DECIMALS).div(10**tokenInDecimals);
+        uint256 usdvAmount = (_amountIn * priceIn) / PRICE_PRECISION;
+        usdvAmount = (usdvAmount * (10**USDV_DECIMALS)) / (10**tokenInDecimals);
 
         bool isStableSwap = _vault.stableTokens(_tokenIn) &&
             _vault.stableTokens(_tokenOut);
@@ -304,15 +316,15 @@ contract Reader is Governable {
             uint256 poolAmount = vault.poolAmounts(token);
 
             if (poolAmount > 0) {
-                fundingRates[i * propsLength] = fundingRateFactor
-                    .mul(reservedAmount)
-                    .div(poolAmount);
+                fundingRates[i * propsLength] =
+                    (fundingRateFactor * reservedAmount) /
+                    poolAmount;
             }
 
             if (vault.cumulativeFundingRates(token) > 0) {
                 uint256 nextRate = vault.getNextFundingRate(token);
                 uint256 baseRate = vault.cumulativeFundingRates(token);
-                fundingRates[i * propsLength + 1] = baseRate.add(nextRate);
+                fundingRates[i * propsLength + 1] = baseRate + nextRate;
             }
         }
 
@@ -328,7 +340,7 @@ contract Reader is Governable {
         for (uint256 i = 0; i < _excludedAccounts.length; i++) {
             address account = _excludedAccounts[i];
             uint256 balance = _token.balanceOf(account);
-            supply = supply.sub(balance);
+            supply -= balance;
         }
         return supply;
     }
@@ -342,7 +354,7 @@ contract Reader is Governable {
         for (uint256 i = 0; i < _accounts.length; i++) {
             address account = _accounts[i];
             uint256 balance = _token.balanceOf(account);
-            totalBalance = totalBalance.add(balance);
+            totalBalance += balance;
         }
         return totalBalance;
     }
