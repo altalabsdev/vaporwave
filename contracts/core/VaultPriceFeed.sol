@@ -1,27 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IVaultPriceFeed.sol";
 import "../oracle/interfaces/IPriceFeed.sol";
 import "../oracle/interfaces/ISecondaryPriceFeed.sol";
 import "../amm/interfaces/IPancakePair.sol";
 
-error VaultPriceFeedForbidden();
+/// Sender does not have permission to call this function
+error Forbidden();
+/// Must wait for the adjustment interval to pass before calling this function
+error AdjustmentCooldown();
+/// Adjustment basis points cannot be greater than the max
+error InvalidAdjustmentBps();
+/// Spread basis points cannot be greater than the max
+error InvalidSpreadBasisPoints();
+/// The price sample space must be greater than 0
+error InvalidPriceSampleSpace();
+/// Not a valid price feed
+error InvalidPriceFeed();
+/// Price must be greater than 0
+error InvalidPrice();
 
 /// @title Vaporwave Vault Price Feed
-contract VaultPriceFeed is IVaultPriceFeed {
-    using SafeMath for uint256;
-
-    uint256 public constant PRICE_PRECISION = 10**30;
+contract VaultPriceFeed is Ownable, IVaultPriceFeed {
+    uint128 public constant PRICE_PRECISION = 1e30;
     uint256 public constant ONE_USD = PRICE_PRECISION;
     uint256 public constant BASIS_POINTS_DIVISOR = 10000;
     uint256 public constant MAX_SPREAD_BASIS_POINTS = 50;
     uint256 public constant MAX_ADJUSTMENT_INTERVAL = 2 hours;
     uint256 public constant MAX_ADJUSTMENT_BASIS_POINTS = 20;
-
-    address public gov;
 
     bool public isAmmEnabled = true;
     bool public isSecondaryPriceEnabled = true;
@@ -55,37 +64,20 @@ contract VaultPriceFeed is IVaultPriceFeed {
     mapping(address => bool) public override isAdjustmentAdditive;
     mapping(address => uint256) public lastAdjustmentTimings;
 
-    modifier onlyGov() {
-        if (msg.sender != gov) {
-            revert VaultPriceFeedForbidden();
-        }
-        _;
-    }
-
-    constructor() {
-        gov = msg.sender;
-    }
-
-    /// @notice Set the governing address
-    /// @param _gov Address of the contract governor
-    function setGov(address _gov) external onlyGov {
-        gov = _gov;
-    }
-
     function setAdjustment(
         address _token,
         bool _isAdditive,
         uint256 _adjustmentBps
-    ) external override onlyGov {
-        require(
-            lastAdjustmentTimings[_token].add(MAX_ADJUSTMENT_INTERVAL) <
-                block.timestamp,
-            "VaultPriceFeed: adjustment frequency exceeded"
-        );
-        require(
-            _adjustmentBps <= MAX_ADJUSTMENT_BASIS_POINTS,
-            "invalid _adjustmentBps"
-        );
+    ) external override onlyOwner {
+        if (
+            lastAdjustmentTimings[_token] + MAX_ADJUSTMENT_INTERVAL >=
+            block.timestamp
+        ) {
+            revert AdjustmentCooldown();
+        }
+        if (_adjustmentBps > MAX_ADJUSTMENT_BASIS_POINTS) {
+            revert InvalidAdjustmentBps();
+        }
         isAdjustmentAdditive[_token] = _isAdditive;
         adjustmentBasisPoints[_token] = _adjustmentBps;
         lastAdjustmentTimings[_token] = block.timestamp;
@@ -93,13 +85,13 @@ contract VaultPriceFeed is IVaultPriceFeed {
 
     /// @notice Enable or disable `_useV2Pricing` the price feed from using V2 pricing
     /// @param _useV2Pricing Whether to enable or disable the V2 pricing for the feed
-    function setUseV2Pricing(bool _useV2Pricing) external override onlyGov {
+    function setUseV2Pricing(bool _useV2Pricing) external override onlyOwner {
         useV2Pricing = _useV2Pricing;
     }
 
     /// @notice Enable or disable `_isEnabled` the price feed from using AMM aggregate pricing
     /// @param _isEnabled Whether to enable or disable the AMM pricing for the feed
-    function setIsAmmEnabled(bool _isEnabled) external override onlyGov {
+    function setIsAmmEnabled(bool _isEnabled) external override onlyOwner {
         isAmmEnabled = _isEnabled;
     }
 
@@ -108,14 +100,14 @@ contract VaultPriceFeed is IVaultPriceFeed {
     function setIsSecondaryPriceEnabled(bool _isEnabled)
         external
         override
-        onlyGov
+        onlyOwner
     {
         isSecondaryPriceEnabled = _isEnabled;
     }
 
     function setSecondaryPriceFeed(address _secondaryPriceFeed)
         external
-        onlyGov
+        onlyOwner
     {
         secondaryPriceFeed = _secondaryPriceFeed;
     }
@@ -124,7 +116,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
         address _btc,
         address _eth,
         address _bnb
-    ) external onlyGov {
+    ) external onlyOwner {
         btc = _btc;
         eth = _eth;
         bnb = _bnb;
@@ -134,7 +126,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
         address _bnbBusd,
         address _ethBnb,
         address _btcBnb
-    ) external onlyGov {
+    ) external onlyOwner {
         bnbBusd = _bnbBusd;
         ethBnb = _ethBnb;
         btcBnb = _btcBnb;
@@ -143,19 +135,18 @@ contract VaultPriceFeed is IVaultPriceFeed {
     function setSpreadBasisPoints(address _token, uint256 _spreadBasisPoints)
         external
         override
-        onlyGov
+        onlyOwner
     {
-        require(
-            _spreadBasisPoints <= MAX_SPREAD_BASIS_POINTS,
-            "VaultPriceFeed: invalid _spreadBasisPoints"
-        );
+        if (_spreadBasisPoints > MAX_SPREAD_BASIS_POINTS) {
+            revert InvalidSpreadBasisPoints();
+        }
         spreadBasisPoints[_token] = _spreadBasisPoints;
     }
 
     function setSpreadThresholdBasisPoints(uint256 _spreadThresholdBasisPoints)
         external
         override
-        onlyGov
+        onlyOwner
     {
         spreadThresholdBasisPoints = _spreadThresholdBasisPoints;
     }
@@ -163,7 +154,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
     function setFavorPrimaryPrice(bool _favorPrimaryPrice)
         external
         override
-        onlyGov
+        onlyOwner
     {
         favorPrimaryPrice = _favorPrimaryPrice;
     }
@@ -171,19 +162,18 @@ contract VaultPriceFeed is IVaultPriceFeed {
     function setPriceSampleSpace(uint256 _priceSampleSpace)
         external
         override
-        onlyGov
+        onlyOwner
     {
-        require(
-            _priceSampleSpace > 0,
-            "VaultPriceFeed: invalid _priceSampleSpace"
-        );
+        if (_priceSampleSpace == 0) {
+            revert InvalidPriceSampleSpace();
+        }
         priceSampleSpace = _priceSampleSpace;
     }
 
     function setMaxStrictPriceDeviation(uint256 _maxStrictPriceDeviation)
         external
         override
-        onlyGov
+        onlyOwner
     {
         maxStrictPriceDeviation = _maxStrictPriceDeviation;
     }
@@ -193,7 +183,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
         address _priceFeed,
         uint256 _priceDecimals,
         bool _isStrictStable
-    ) external override onlyGov {
+    ) external override onlyOwner {
         priceFeeds[_token] = _priceFeed;
         priceDecimals[_token] = _priceDecimals;
         strictStableTokens[_token] = _isStrictStable;
@@ -213,13 +203,13 @@ contract VaultPriceFeed is IVaultPriceFeed {
         if (adjustmentBps > 0) {
             bool isAdditive = isAdjustmentAdditive[_token];
             if (isAdditive) {
-                price = price.mul(BASIS_POINTS_DIVISOR.add(adjustmentBps)).div(
-                    BASIS_POINTS_DIVISOR
-                );
+                price =
+                    (price * (BASIS_POINTS_DIVISOR + adjustmentBps)) /
+                    BASIS_POINTS_DIVISOR;
             } else {
-                price = price.mul(BASIS_POINTS_DIVISOR.sub(adjustmentBps)).div(
-                    BASIS_POINTS_DIVISOR
-                );
+                price =
+                    (price * (BASIS_POINTS_DIVISOR - adjustmentBps)) /
+                    BASIS_POINTS_DIVISOR;
             }
         }
 
@@ -250,9 +240,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
         }
 
         if (strictStableTokens[_token]) {
-            uint256 delta = price > ONE_USD
-                ? price.sub(ONE_USD)
-                : ONE_USD.sub(price);
+            uint256 delta = price > ONE_USD ? price - ONE_USD : ONE_USD - price;
             if (delta <= maxStrictPriceDeviation) {
                 return ONE_USD;
             }
@@ -274,15 +262,13 @@ contract VaultPriceFeed is IVaultPriceFeed {
 
         if (_maximise) {
             return
-                price.mul(BASIS_POINTS_DIVISOR.add(_spreadBasisPoints)).div(
-                    BASIS_POINTS_DIVISOR
-                );
+                (price * (BASIS_POINTS_DIVISOR + _spreadBasisPoints)) /
+                BASIS_POINTS_DIVISOR;
         }
 
         return
-            price.mul(BASIS_POINTS_DIVISOR.sub(_spreadBasisPoints)).div(
-                BASIS_POINTS_DIVISOR
-            );
+            (price * (BASIS_POINTS_DIVISOR - _spreadBasisPoints)) /
+            BASIS_POINTS_DIVISOR;
     }
 
     function getPriceV2(
@@ -301,9 +287,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
         }
 
         if (strictStableTokens[_token]) {
-            uint256 delta = price > ONE_USD
-                ? price.sub(ONE_USD)
-                : ONE_USD.sub(price);
+            uint256 delta = price > ONE_USD ? price - ONE_USD : ONE_USD - price;
             if (delta <= maxStrictPriceDeviation) {
                 return ONE_USD;
             }
@@ -325,15 +309,13 @@ contract VaultPriceFeed is IVaultPriceFeed {
 
         if (_maximise) {
             return
-                price.mul(BASIS_POINTS_DIVISOR.add(_spreadBasisPoints)).div(
-                    BASIS_POINTS_DIVISOR
-                );
+                (price * (BASIS_POINTS_DIVISOR + _spreadBasisPoints)) /
+                BASIS_POINTS_DIVISOR;
         }
 
         return
-            price.mul(BASIS_POINTS_DIVISOR.sub(_spreadBasisPoints)).div(
-                BASIS_POINTS_DIVISOR
-            );
+            (price * (BASIS_POINTS_DIVISOR - _spreadBasisPoints)) /
+            BASIS_POINTS_DIVISOR;
     }
 
     function getAmmPriceV2(
@@ -347,11 +329,11 @@ contract VaultPriceFeed is IVaultPriceFeed {
         }
 
         uint256 diff = ammPrice > _primaryPrice
-            ? ammPrice.sub(_primaryPrice)
-            : _primaryPrice.sub(ammPrice);
+            ? ammPrice - _primaryPrice
+            : _primaryPrice - ammPrice;
         if (
-            diff.mul(BASIS_POINTS_DIVISOR) <
-            _primaryPrice.mul(spreadThresholdBasisPoints)
+            diff * BASIS_POINTS_DIVISOR <
+            _primaryPrice * spreadThresholdBasisPoints
         ) {
             if (favorPrimaryPrice) {
                 return _primaryPrice;
@@ -377,10 +359,9 @@ contract VaultPriceFeed is IVaultPriceFeed {
         returns (uint256)
     {
         address priceFeedAddress = priceFeeds[_token];
-        require(
-            priceFeedAddress != address(0),
-            "VaultPriceFeed: invalid price feed"
-        );
+        if (priceFeedAddress == address(0)) {
+            revert InvalidPriceFeed();
+        }
 
         // if (chainlinkFlags != address(0)) {
         //     bool isRaised = IChainlinkFlags(chainlinkFlags).getFlag(
@@ -401,17 +382,20 @@ contract VaultPriceFeed is IVaultPriceFeed {
             if (roundId <= i) {
                 break;
             }
+
             uint256 p;
+            int256 _p;
 
             if (i == 0) {
-                int256 _p = priceFeed.latestAnswer();
-                require(_p > 0, "VaultPriceFeed: invalid price");
-                p = uint256(_p);
+                _p = priceFeed.latestAnswer();
             } else {
-                (, int256 _p, , , ) = priceFeed.getRoundData(roundId - i);
-                require(_p > 0, "VaultPriceFeed: invalid price");
-                p = uint256(_p);
+                (, _p, , , ) = priceFeed.getRoundData(roundId - i);
             }
+
+            if (_p == 0) {
+                revert InvalidPrice();
+            }
+            p = uint256(_p);
 
             if (price == 0) {
                 price = p;
@@ -428,10 +412,12 @@ contract VaultPriceFeed is IVaultPriceFeed {
             }
         }
 
-        require(price > 0, "VaultPriceFeed: could not fetch price");
+        if (price == 0) {
+            revert InvalidPrice();
+        }
         // normalise price precision
         uint256 _priceDecimals = priceDecimals[_token];
-        return price.mul(PRICE_PRECISION).div(10**_priceDecimals);
+        return (price * PRICE_PRECISION) / (10**_priceDecimals);
     }
 
     function getSecondaryPrice(
@@ -466,7 +452,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
             // for ethBnb, reserve0: ETH, reserve1: BNB
             uint256 price1 = getPairPrice(ethBnb, true);
             // this calculation could overflow if (price0 / 10**30) * (price1 / 10**30) is more than 10**17
-            return price0.mul(price1).div(PRICE_PRECISION);
+            return (price0 * price1) / PRICE_PRECISION;
         }
 
         if (_token == btc) {
@@ -474,7 +460,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
             // for btcBnb, reserve0: BTC, reserve1: BNB
             uint256 price1 = getPairPrice(btcBnb, true);
             // this calculation could overflow if (price0 / 10**30) * (price1 / 10**30) is more than 10**17
-            return price0.mul(price1).div(PRICE_PRECISION);
+            return (price0 * price1) / PRICE_PRECISION;
         }
 
         return 0;
@@ -493,11 +479,11 @@ contract VaultPriceFeed is IVaultPriceFeed {
             if (reserve0 == 0) {
                 return 0;
             }
-            return reserve1.mul(PRICE_PRECISION).div(reserve0);
+            return (reserve1 * PRICE_PRECISION) / reserve0;
         }
         if (reserve1 == 0) {
             return 0;
         }
-        return reserve0.mul(PRICE_PRECISION).div(reserve1);
+        return (reserve0 * PRICE_PRECISION) / reserve1;
     }
 }
