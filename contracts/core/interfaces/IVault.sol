@@ -5,62 +5,7 @@ import "./IVaultUtils.sol";
 
 /// Interface for the Vault contract
 interface IVault {
-    function isInitialized() external view returns (bool);
-
-    function isSwapEnabled() external view returns (bool);
-
-    function isLeverageEnabled() external view returns (bool);
-
     function setVaultUtils(IVaultUtils _vaultUtils) external;
-
-    function setError(uint256 _errorCode, string calldata _error) external;
-
-    function router() external view returns (address);
-
-    function usdv() external view returns (address);
-
-    function gov() external view returns (address);
-
-    function whitelistedTokenCount() external view returns (uint256);
-
-    function maxLeverage() external view returns (uint256);
-
-    function minProfitTime() external view returns (uint256);
-
-    function hasDynamicFees() external view returns (bool);
-
-    function fundingInterval() external view returns (uint256);
-
-    function totalTokenWeights() external view returns (uint256);
-
-    function getTargetUsdvAmount(address _token)
-        external
-        view
-        returns (uint256);
-
-    function inManagerMode() external view returns (bool);
-
-    function inPrivateLiquidationMode() external view returns (bool);
-
-    function maxGasPrice() external view returns (uint256);
-
-    function approvedRouters(address _account, address _router)
-        external
-        view
-        returns (bool);
-
-    function isLiquidator(address _account) external view returns (bool);
-
-    function isManager(address _account) external view returns (bool);
-
-    function minProfitBasisPoints(address _token)
-        external
-        view
-        returns (uint256);
-
-    function tokenBalances(address _token) external view returns (uint256);
-
-    function lastFundingTimes(address _token) external view returns (uint256);
 
     function setMaxLeverage(uint256 _maxLeverage) external;
 
@@ -160,6 +105,59 @@ interface IVault {
         bool _isLong,
         address _feeReceiver
     ) external;
+
+    function isInitialized() external view returns (bool);
+
+    function isSwapEnabled() external view returns (bool);
+
+    function isLeverageEnabled() external view returns (bool);
+
+    function router() external view returns (address);
+
+    function usdv() external view returns (address);
+
+    function owner() external view returns (address);
+
+    function whitelistedTokenCount() external view returns (uint256);
+
+    function maxLeverage() external view returns (uint256);
+
+    function minProfitTime() external view returns (uint256);
+
+    function hasDynamicFees() external view returns (bool);
+
+    function fundingInterval() external view returns (uint256);
+
+    function totalTokenWeights() external view returns (uint256);
+
+    function getTargetUsdvAmount(address _token)
+        external
+        view
+        returns (uint256);
+
+    function inManagerMode() external view returns (bool);
+
+    function inPrivateLiquidationMode() external view returns (bool);
+
+    function maxGasPrice() external view returns (uint256);
+
+    function approvedRouters(address _account, address _router)
+        external
+        view
+        returns (bool);
+
+    function isLiquidator(address _account) external view returns (bool);
+
+    function isManager(address _account) external view returns (bool);
+
+    function minProfitBasisPoints(address _token)
+        external
+        view
+        returns (uint256);
+
+    function tokenBalances(address _token) external view returns (uint256);
+
+    function lastFundingTimes(address _token) external view returns (uint256);
 
     function tokenToUsdMin(address _token, uint256 _tokenAmount)
         external
