@@ -4,13 +4,12 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IVault.sol";
 import "./interfaces/IVlpManager.sol";
 import "../tokens/interfaces/IUSDV.sol";
 import "../tokens/interfaces/IMintable.sol";
-import "../access/Governable.sol";
 
 /// Caller is not a valid handler
 error InvalidHandler();
@@ -26,13 +25,12 @@ error InsufficientOutput();
 error Cooldown();
 
 /// @title Vaporwave VLP Manager
-contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
-    using SafeMath for uint256;
+contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
     using SafeERC20 for IERC20;
 
-    uint256 public constant PRICE_PRECISION = 10**30;
-    uint256 public constant USDV_DECIMALS = 18;
-    uint256 public constant MAX_COOLDOWN_DURATION = 48 hours;
+    uint8 public constant USDV_DECIMALS = 18;
+    uint32 public constant MAX_COOLDOWN_DURATION = 48 hours; // 172800 seconds
+    uint128 public constant PRICE_PRECISION = 1e30;
 
     /// The vault address
     IVault public immutable vault;
@@ -78,7 +76,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
         address _vlp,
         uint256 _cooldownDuration
     ) {
-        gov = msg.sender;
+        _transferOwnership(msg.sender);
         vault = IVault(_vault);
         usdv = _usdv;
         vlp = _vlp;
@@ -87,20 +85,20 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
 
     /// @notice Set the inPrivateMode flag
     /// @param _inPrivateMode True if the VLP Manager is in private mode, false otherwise
-    function setInPrivateMode(bool _inPrivateMode) external onlyGov {
+    function setInPrivateMode(bool _inPrivateMode) external onlyOwner {
         inPrivateMode = _inPrivateMode;
     }
 
     /// @notice Set the address of a handler
     /// @param _handler Address of the handler to set
     /// @param _isActive True if the address is a handler, false otherwise
-    function setHandler(address _handler, bool _isActive) external onlyGov {
+    function setHandler(address _handler, bool _isActive) external onlyOwner {
         isHandler[_handler] = _isActive;
     }
 
     /// @notice Set the cooldown duration
     /// @param _cooldownDuration Cooldown duration in seconds
-    function setCooldownDuration(uint256 _cooldownDuration) external onlyGov {
+    function setCooldownDuration(uint256 _cooldownDuration) external onlyOwner {
         if (_cooldownDuration > MAX_COOLDOWN_DURATION) {
             revert InvalidCooldownDuration();
         }
@@ -112,7 +110,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
     /// @param _aumDeduction AUM deduction in USDV
     function setAumAdjustment(uint256 _aumAddition, uint256 _aumDeduction)
         external
-        onlyGov
+        onlyOwner
     {
         aumAddition = _aumAddition;
         aumDeduction = _aumDeduction;
@@ -232,7 +230,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
     /// @return AUM in USDV
     function getAumInUsdv(bool maximise) public view returns (uint256) {
         uint256 aum = getAum(maximise);
-        return aum.mul(10**USDV_DECIMALS).div(PRICE_PRECISION);
+        return (aum * (10**USDV_DECIMALS)) / (PRICE_PRECISION);
     }
 
     /// @notice Get Assets Under Management(AUM)
@@ -258,7 +256,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
             uint256 decimals = vault.tokenDecimals(token);
 
             if (vault.stableTokens(token)) {
-                aum = aum.add(poolAmount.mul(price).div(10**decimals));
+                aum += ((poolAmount * price) / (10**decimals));
             } else {
                 // add global short profit / loss
                 uint256 size = vault.globalShortSizes(token);
@@ -267,28 +265,26 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
                         token
                     );
                     uint256 priceDelta = averagePrice > price
-                        ? averagePrice.sub(price)
-                        : price.sub(averagePrice);
-                    uint256 delta = size.mul(priceDelta).div(averagePrice);
+                        ? averagePrice - price
+                        : price - averagePrice;
+                    uint256 delta = (size * priceDelta) / averagePrice;
                     if (price > averagePrice) {
                         // add losses from shorts
-                        aum = aum.add(delta);
+                        aum += delta;
                     } else {
-                        shortProfits = shortProfits.add(delta);
+                        shortProfits += delta;
                     }
                 }
 
-                aum = aum.add(vault.guaranteedUsd(token));
+                aum += vault.guaranteedUsd(token);
 
                 uint256 reservedAmount = vault.reservedAmounts(token);
-                aum = aum.add(
-                    poolAmount.sub(reservedAmount).mul(price).div(10**decimals)
-                );
+                aum += (poolAmount - (reservedAmount * price) / (10**decimals));
             }
         }
 
-        aum = shortProfits > aum ? 0 : aum.sub(shortProfits);
-        return aumDeduction > aum ? 0 : aum.sub(aumDeduction);
+        aum = shortProfits > aum ? 0 : aum - shortProfits;
+        return aumDeduction > aum ? 0 : aum - aumDeduction;
     }
 
     function _addLiquidity(
@@ -319,7 +315,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
 
         uint256 mintAmount = aumInUsdv == 0
             ? usdvAmount
-            : usdvAmount.mul(vlpSupply).div(aumInUsdv);
+            : (usdvAmount * vlpSupply) / aumInUsdv;
         if (mintAmount < _minVlp) {
             revert InsufficientOutput();
         }
@@ -351,7 +347,7 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
         if (_vlpAmount == 0) {
             revert InvalidAmount();
         }
-        if (lastAddedAt[_account].add(cooldownDuration) <= block.timestamp) {
+        if (lastAddedAt[_account] + cooldownDuration <= block.timestamp) {
             revert Cooldown();
         }
 
@@ -359,10 +355,10 @@ contract VlpManager is ReentrancyGuard, Governable, IVlpManager {
         uint256 aumInUsdv = getAumInUsdv(false);
         uint256 vlpSupply = IERC20(vlp).totalSupply();
 
-        uint256 usdvAmount = _vlpAmount.mul(aumInUsdv).div(vlpSupply);
+        uint256 usdvAmount = (_vlpAmount * aumInUsdv) / vlpSupply;
         uint256 usdvBalance = IERC20(usdv).balanceOf(address(this));
         if (usdvAmount > usdvBalance) {
-            IUSDV(usdv).mint(address(this), usdvAmount.sub(usdvBalance));
+            IUSDV(usdv).mint(address(this), usdvAmount - usdvBalance);
         }
 
         IMintable(vlp).burn(_account, _vlpAmount);
