@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
 import "./interfaces/IVault.sol";
 import "./interfaces/IVaultUtils.sol";
 
-import "../access/Governable.sol";
+/// The losses exceed the collateral amount
+error LossesExceedCollateral();
+/// The fees exceed the collateral amount
+error FeesExceedCollateral();
+/// Max leverage amount is exceeded
+error MaxLeverageExceeded();
 
+// TODO finish NatSpec
 /// @title Vaporwave Vault Utils
-contract VaultUtils is IVaultUtils, Governable {
-    using SafeMath for uint256;
-
+contract VaultUtils is IVaultUtils, Ownable {
     struct Position {
         uint256 size;
         uint256 collateral;
@@ -22,10 +27,13 @@ contract VaultUtils is IVaultUtils, Governable {
         uint256 lastIncreasedTime;
     }
 
+    /// The vault address
     IVault public vault;
 
-    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
-    uint256 public constant FUNDING_RATE_PRECISION = 1000000;
+    /// Helper to avoid truncation errors in basis points calculations
+    uint16 public constant BASIS_POINTS_DIVISOR = 10000;
+    /// Helper to avoid truncation errors in funding rate calculations
+    uint32 public constant FUNDING_RATE_PRECISION = 1e6;
 
     constructor(IVault _vault) {
         vault = _vault;
@@ -85,49 +93,47 @@ contract VaultUtils is IVaultUtils, Governable {
             position.size,
             position.entryFundingRate
         );
-        marginFees = marginFees.add(
-            getPositionFee(
-                _account,
-                _collateralToken,
-                _indexToken,
-                _isLong,
-                position.size
-            )
+        marginFees += getPositionFee(
+            _account,
+            _collateralToken,
+            _indexToken,
+            _isLong,
+            position.size
         );
 
         if (!hasProfit && position.collateral < delta) {
             if (_raise) {
-                revert("Vault: losses exceed collateral");
+                revert LossesExceedCollateral();
             }
             return (1, marginFees);
         }
 
         uint256 remainingCollateral = position.collateral;
         if (!hasProfit) {
-            remainingCollateral = position.collateral.sub(delta);
+            remainingCollateral = position.collateral - delta;
         }
 
         if (remainingCollateral < marginFees) {
             if (_raise) {
-                revert("Vault: fees exceed collateral");
+                revert FeesExceedCollateral();
             }
             // cap the fees to the remainingCollateral
             return (1, remainingCollateral);
         }
 
-        if (remainingCollateral < marginFees.add(_vault.liquidationFeeUsd())) {
+        if (remainingCollateral < marginFees + _vault.liquidationFeeUsd()) {
             if (_raise) {
-                revert("Vault: liquidation fees exceed collateral");
+                revert FeesExceedCollateral();
             }
             return (1, marginFees);
         }
 
         if (
-            remainingCollateral.mul(_vault.maxLeverage()) <
-            position.size.mul(BASIS_POINTS_DIVISOR)
+            remainingCollateral * _vault.maxLeverage() <
+            position.size * BASIS_POINTS_DIVISOR
         ) {
             if (_raise) {
-                revert("Vault: maxLeverage exceeded");
+                revert MaxLeverageExceeded();
             }
             return (2, marginFees);
         }
@@ -135,6 +141,10 @@ contract VaultUtils is IVaultUtils, Governable {
         return (0, marginFees);
     }
 
+    /// @notice Get the entry funding rate
+    /// @dev The entry funding rate is the cumulative funding rate at the time of entry
+    /// @param _collateralToken Address of the collateral token
+    /// @return The entry funding rate
     function getEntryFundingRate(
         address _collateralToken,
         address, /* _indexToken */
@@ -156,12 +166,17 @@ contract VaultUtils is IVaultUtils, Governable {
         if (_sizeDelta == 0) {
             return 0;
         }
-        uint256 afterFeeUsd = _sizeDelta
-            .mul(BASIS_POINTS_DIVISOR.sub(vault.marginFeeBasisPoints()))
-            .div(BASIS_POINTS_DIVISOR);
-        return _sizeDelta.sub(afterFeeUsd);
+        uint256 afterFeeUsd = (_sizeDelta *
+            (BASIS_POINTS_DIVISOR - vault.marginFeeBasisPoints())) /
+            BASIS_POINTS_DIVISOR;
+        return _sizeDelta - afterFeeUsd;
     }
 
+    /// @notice Get the funding fee
+    /// @param _collateralToken The address of the collateral token
+    /// @param _size The size of the position
+    /// @param _entryFundingRate The entry funding rate
+    /// @return The funding fee
     function getFundingFee(
         address, /* _account */
         address _collateralToken,
@@ -174,14 +189,13 @@ contract VaultUtils is IVaultUtils, Governable {
             return 0;
         }
 
-        uint256 fundingRate = vault
-            .cumulativeFundingRates(_collateralToken)
-            .sub(_entryFundingRate);
+        uint256 fundingRate = vault.cumulativeFundingRates(_collateralToken) -
+            _entryFundingRate;
         if (fundingRate == 0) {
             return 0;
         }
 
-        return _size.mul(fundingRate).div(FUNDING_RATE_PRECISION);
+        return (_size * fundingRate) / FUNDING_RATE_PRECISION;
     }
 
     function getBuyUsdvFeeBasisPoints(address _token, uint256 _usdvAmount)
@@ -271,11 +285,11 @@ contract VaultUtils is IVaultUtils, Governable {
         }
 
         uint256 initialAmount = vault.usdvAmounts(_token);
-        uint256 nextAmount = initialAmount.add(_usdvDelta);
+        uint256 nextAmount = initialAmount + _usdvDelta;
         if (!_increment) {
             nextAmount = _usdvDelta > initialAmount
                 ? 0
-                : initialAmount.sub(_usdvDelta);
+                : initialAmount - _usdvDelta;
         }
 
         uint256 targetAmount = vault.getTargetUsdvAmount(_token);
@@ -284,29 +298,25 @@ contract VaultUtils is IVaultUtils, Governable {
         }
 
         uint256 initialDiff = initialAmount > targetAmount
-            ? initialAmount.sub(targetAmount)
-            : targetAmount.sub(initialAmount);
+            ? initialAmount - targetAmount
+            : targetAmount - initialAmount;
         uint256 nextDiff = nextAmount > targetAmount
-            ? nextAmount.sub(targetAmount)
-            : targetAmount.sub(nextAmount);
+            ? nextAmount - targetAmount
+            : targetAmount - nextAmount;
 
         // action improves relative asset balance
         if (nextDiff < initialDiff) {
-            uint256 rebateBps = _taxBasisPoints.mul(initialDiff).div(
-                targetAmount
-            );
+            uint256 rebateBps = (_taxBasisPoints * initialDiff) / targetAmount;
             return
-                rebateBps > _feeBasisPoints
-                    ? 0
-                    : _feeBasisPoints.sub(rebateBps);
+                rebateBps > _feeBasisPoints ? 0 : _feeBasisPoints - rebateBps;
         }
 
-        uint256 averageDiff = initialDiff.add(nextDiff).div(2);
+        uint256 averageDiff = initialDiff + nextDiff / 2;
         if (averageDiff > targetAmount) {
             averageDiff = targetAmount;
         }
-        uint256 taxBps = _taxBasisPoints.mul(averageDiff).div(targetAmount);
-        return _feeBasisPoints.add(taxBps);
+        uint256 taxBps = (_taxBasisPoints * averageDiff) / targetAmount;
+        return _feeBasisPoints + taxBps;
     }
 
     /// @dev Always returns true, included to satisfy the IVaultUtils interface
