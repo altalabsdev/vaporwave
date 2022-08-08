@@ -1,25 +1,43 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IYieldTracker.sol";
 import "./interfaces/IYieldToken.sol";
 
-contract YieldToken is IERC20, IYieldToken {
-    using SafeMath for uint256;
+/// Sender is not an admin
+error OnlyAdmin();
+/// Account already marked as a non-staking account
+error AccountAlreadyMarked();
+/// Account not marked as a non-staking account
+error AccountNotMarked();
+/// Allowance is less than the attempted transfer amount
+error InsufficientAllowance();
+/// Attempting to move more tokens than account's balace
+error InsufficientBalance();
+/// Token cannot interact with the zero address
+error ZeroAddress();
+/// Sender is not whitelisted and contract is in whitelist mode
+error NotWhitelisted();
+
+/// @title Vaporwave Yield Token
+contract YieldToken is IERC20, IYieldToken, Ownable {
     using SafeERC20 for IERC20;
 
+    /// The name of the token
     string public name;
+    /// The token symbol
     string public symbol;
+    /// The decimals of the token is 18
     uint8 public constant decimals = 18;
 
+    /// The total supply of the token
     uint256 public override totalSupply;
+    /// The non-staked supply
     uint256 public nonStakingSupply;
-
-    address public gov;
 
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowances;
@@ -31,13 +49,10 @@ contract YieldToken is IERC20, IYieldToken {
     bool public inWhitelistMode;
     mapping(address => bool) public whitelistedHandlers;
 
-    modifier onlyGov() {
-        require(msg.sender == gov, "YieldToken: forbidden");
-        _;
-    }
-
     modifier onlyAdmin() {
-        require(admins[msg.sender], "YieldToken: forbidden");
+        if (!admins[msg.sender]) {
+            revert OnlyAdmin();
+        }
         _;
     }
 
@@ -48,18 +63,13 @@ contract YieldToken is IERC20, IYieldToken {
     ) {
         name = _name;
         symbol = _symbol;
-        gov = msg.sender;
         admins[msg.sender] = true;
         _mint(msg.sender, _initialSupply);
     }
 
-    function setGov(address _gov) external onlyGov {
-        gov = _gov;
-    }
-
     function setInfo(string memory _name, string memory _symbol)
         external
-        onlyGov
+        onlyOwner
     {
         name = _name;
         symbol = _symbol;
@@ -67,57 +77,65 @@ contract YieldToken is IERC20, IYieldToken {
 
     function setYieldTrackers(address[] memory _yieldTrackers)
         external
-        onlyGov
+        onlyOwner
     {
         yieldTrackers = _yieldTrackers;
     }
 
-    function addAdmin(address _account) external onlyGov {
+    function addAdmin(address _account) external onlyOwner {
         admins[_account] = true;
     }
 
-    function removeAdmin(address _account) external override onlyGov {
+    function removeAdmin(address _account) external override onlyOwner {
         admins[_account] = false;
     }
 
-    // to help users who accidentally send their tokens to this contract
+    /// @notice Withdraw tokens to `_account`
+    /// @dev to help users who accidentally send their tokens to this contract
+    /// @param _token The address of the token to withdraw
+    /// @param _account The address of the account to receive the tokens
+    /// @param _amount The amount of tokens to withdraw
     function withdrawToken(
         address _token,
         address _account,
         uint256 _amount
-    ) external onlyGov {
+    ) external onlyOwner {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
-    function setInWhitelistMode(bool _inWhitelistMode) external onlyGov {
+    function setInWhitelistMode(bool _inWhitelistMode) external onlyOwner {
         inWhitelistMode = _inWhitelistMode;
     }
 
     function setWhitelistedHandler(address _handler, bool _isWhitelisted)
         external
-        onlyGov
+        onlyOwner
     {
         whitelistedHandlers[_handler] = _isWhitelisted;
     }
 
+    /// @notice Add a non-staking account
+    /// @dev Adds the account's token balance from the non-staking supply
+    /// @param _account The address of the account to add
     function addNonStakingAccount(address _account) external onlyAdmin {
-        require(
-            !nonStakingAccounts[_account],
-            "YieldToken: _account already marked"
-        );
+        if (nonStakingAccounts[_account]) {
+            revert AccountAlreadyMarked();
+        }
         _updateRewards(_account);
         nonStakingAccounts[_account] = true;
-        nonStakingSupply = nonStakingSupply.add(balances[_account]);
+        nonStakingSupply += balances[_account];
     }
 
+    /// @notice Remove a non-staking account
+    /// @dev Removes the account's token balance from the non-staking supply
+    /// @param _account The address of the account to remove
     function removeNonStakingAccount(address _account) external onlyAdmin {
-        require(
-            nonStakingAccounts[_account],
-            "YieldToken: _account not marked"
-        );
+        if (!nonStakingAccounts[_account]) {
+            revert AccountNotMarked();
+        }
         _updateRewards(_account);
         nonStakingAccounts[_account] = false;
-        nonStakingSupply = nonStakingSupply.sub(balances[_account]);
+        nonStakingSupply -= balances[_account];
     }
 
     function recoverClaim(address _account, address _receiver)
@@ -137,10 +155,59 @@ contract YieldToken is IERC20, IYieldToken {
         }
     }
 
-    function totalStaked() external view override returns (uint256) {
-        return totalSupply.sub(nonStakingSupply);
+    /// @notice Transfer `_amount` tokens to `_recipient`
+    /// @param _recipient The address to receive the tokens
+    /// @param _amount The amount to transfer
+    /// @return Whether the transfer was successful or not
+    function transfer(address _recipient, uint256 _amount)
+        external
+        override
+        returns (bool)
+    {
+        _transfer(msg.sender, _recipient, _amount);
+        return true;
     }
 
+    /// @notice Transfer `_amount` tokens from `_sender` to `_recipient`
+    /// @param _sender The address of the sender
+    /// @param _recipient The address to receive the tokens
+    /// @param _amount The amount to transfer
+    /// @return Whether the transfer was successful or not
+    function transferFrom(
+        address _sender,
+        address _recipient,
+        uint256 _amount
+    ) external override returns (bool) {
+        if (allowances[_sender][msg.sender] < _amount) {
+            revert InsufficientAllowance();
+        }
+        unchecked {
+            uint256 nextAllowance = allowances[_sender][msg.sender] - _amount;
+            _approve(_sender, msg.sender, nextAllowance);
+        }
+
+        _transfer(_sender, _recipient, _amount);
+        return true;
+    }
+
+    function approve(address _spender, uint256 _amount)
+        external
+        override
+        returns (bool)
+    {
+        _approve(msg.sender, _spender, _amount);
+        return true;
+    }
+
+    /// @notice Get the total amount staked
+    /// @return The total amount staked
+    function totalStaked() external view override returns (uint256) {
+        return totalSupply - nonStakingSupply;
+    }
+
+    /// @notice Get the token balance of `_account`
+    /// @param _account The address to query for the token balance
+    /// @return The token balance of `_account`
     function balanceOf(address _account)
         external
         view
@@ -150,6 +217,9 @@ contract YieldToken is IERC20, IYieldToken {
         return balances[_account];
     }
 
+    /// @notice Get the staked token balance of `_account`
+    /// @param _account The address to query for the staked token balance
+    /// @return The staked token balance of `_account`
     function stakedBalance(address _account)
         external
         view
@@ -162,15 +232,6 @@ contract YieldToken is IERC20, IYieldToken {
         return balances[_account];
     }
 
-    function transfer(address _recipient, uint256 _amount)
-        external
-        override
-        returns (bool)
-    {
-        _transfer(msg.sender, _recipient, _amount);
-        return true;
-    }
-
     function allowance(address _owner, address _spender)
         external
         view
@@ -180,60 +241,42 @@ contract YieldToken is IERC20, IYieldToken {
         return allowances[_owner][_spender];
     }
 
-    function approve(address _spender, uint256 _amount)
-        external
-        override
-        returns (bool)
-    {
-        _approve(msg.sender, _spender, _amount);
-        return true;
-    }
-
-    function transferFrom(
-        address _sender,
-        address _recipient,
-        uint256 _amount
-    ) external override returns (bool) {
-        uint256 nextAllowance = allowances[_sender][msg.sender].sub(
-            _amount,
-            "YieldToken: transfer amount exceeds allowance"
-        );
-        _approve(_sender, msg.sender, nextAllowance);
-        _transfer(_sender, _recipient, _amount);
-        return true;
-    }
-
     function _mint(address _account, uint256 _amount) internal {
-        require(_account != address(0), "YieldToken: mint to the zero address");
+        if (_account == address(0)) {
+            revert ZeroAddress();
+        }
 
         _updateRewards(_account);
 
-        totalSupply = totalSupply.add(_amount);
-        balances[_account] = balances[_account].add(_amount);
+        totalSupply += _amount;
+        balances[_account] += _amount;
 
         if (nonStakingAccounts[_account]) {
-            nonStakingSupply = nonStakingSupply.add(_amount);
+            nonStakingSupply += _amount;
         }
 
         emit Transfer(address(0), _account, _amount);
     }
 
     function _burn(address _account, uint256 _amount) internal {
-        require(
-            _account != address(0),
-            "YieldToken: burn from the zero address"
-        );
+        if (_account == address(0)) {
+            revert ZeroAddress();
+        }
 
         _updateRewards(_account);
 
-        balances[_account] = balances[_account].sub(
-            _amount,
-            "YieldToken: burn amount exceeds balance"
-        );
-        totalSupply = totalSupply.sub(_amount);
+        if (balances[_account] < _amount) {
+            revert InsufficientBalance();
+        }
+
+        unchecked {
+            balances[_account] -= _amount;
+        }
+
+        totalSupply -= _amount;
 
         if (nonStakingAccounts[_account]) {
-            nonStakingSupply = nonStakingSupply.sub(_amount);
+            nonStakingSupply -= _amount;
         }
 
         emit Transfer(_account, address(0), _amount);
@@ -244,36 +287,34 @@ contract YieldToken is IERC20, IYieldToken {
         address _recipient,
         uint256 _amount
     ) private {
-        require(
-            _sender != address(0),
-            "YieldToken: transfer from the zero address"
-        );
-        require(
-            _recipient != address(0),
-            "YieldToken: transfer to the zero address"
-        );
+        if (_sender == address(0) || _recipient == address(0)) {
+            revert ZeroAddress();
+        }
 
         if (inWhitelistMode) {
-            require(
-                whitelistedHandlers[msg.sender],
-                "YieldToken: msg.sender not whitelisted"
-            );
+            if (!whitelistedHandlers[msg.sender]) {
+                revert NotWhitelisted();
+            }
         }
 
         _updateRewards(_sender);
         _updateRewards(_recipient);
 
-        balances[_sender] = balances[_sender].sub(
-            _amount,
-            "YieldToken: transfer amount exceeds balance"
-        );
-        balances[_recipient] = balances[_recipient].add(_amount);
+        if (balances[_sender] < _amount) {
+            revert InsufficientBalance();
+        }
+
+        unchecked {
+            balances[_sender] -= _amount;
+        }
+
+        balances[_recipient] += _amount;
 
         if (nonStakingAccounts[_sender]) {
-            nonStakingSupply = nonStakingSupply.sub(_amount);
+            nonStakingSupply -= _amount;
         }
         if (nonStakingAccounts[_recipient]) {
-            nonStakingSupply = nonStakingSupply.add(_amount);
+            nonStakingSupply += _amount;
         }
 
         emit Transfer(_sender, _recipient, _amount);
@@ -284,14 +325,9 @@ contract YieldToken is IERC20, IYieldToken {
         address _spender,
         uint256 _amount
     ) private {
-        require(
-            _owner != address(0),
-            "YieldToken: approve from the zero address"
-        );
-        require(
-            _spender != address(0),
-            "YieldToken: approve to the zero address"
-        );
+        if (_owner == address(0) || _spender == address(0)) {
+            revert ZeroAddress();
+        }
 
         allowances[_owner][_spender] = _amount;
 
