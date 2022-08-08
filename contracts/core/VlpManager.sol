@@ -50,6 +50,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
     /// Mapping of handler addresses
     mapping(address => bool) public isHandler;
 
+    /// @notice Emitted when liquidity is added
     event AddLiquidity(
         address account,
         address token,
@@ -60,6 +61,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         uint256 mintAmount
     );
 
+    /// @notice Emitted when liquidity is removed
     event RemoveLiquidity(
         address account,
         address token,
