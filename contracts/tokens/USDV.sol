@@ -18,19 +18,19 @@ contract USDV is YieldToken, IUSDV {
         _;
     }
 
-    constructor(address _vault) YieldToken("USD Gambit", "USDV", 0) {
+    constructor(address _vault) YieldToken("USD Vaporwave", "USDV", 0) {
         vaults[_vault] = true;
     }
 
     /// @notice Add a vault to the list of vaults
     /// @param _vault Address of the vault to add
-    function addVault(address _vault) external override onlyGov {
+    function addVault(address _vault) external override onlyOwner {
         vaults[_vault] = true;
     }
 
     /// @notice Remove a vault from the list of vaults
     /// @param _vault Address of the vault to remove
-    function removeVault(address _vault) external override onlyGov {
+    function removeVault(address _vault) external override onlyOwner {
         vaults[_vault] = false;
     }
 
