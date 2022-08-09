@@ -4,14 +4,33 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IRewardDistributor.sol";
 import "./interfaces/IRewardTracker.sol";
-import "../access/Governable.sol";
 
-contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
-    using SafeMath for uint256;
+/// Sender is not a valid handler
+error InvalidHandler();
+/// Allowance is less than the attempted transfer amount
+error InsufficientAllowance();
+/// Attempting to move more tokens than account's balace
+error InsufficientBalance();
+/// Token is not a valid deposit token
+error InvalidDepositToken();
+/// Token cannot interact with the zero address
+error ZeroAddress();
+/// Amount is greater than the stakedAmount or depositBalance
+error InvalidAmount();
+/// Amount must be greater than 0
+error ZeroAmount();
+/// Action is not enabled in private staking made
+error ActionNotEnabled();
+/// Contract is already initialized
+error AlreadyInitialized();
+
+// TODO add NatSpec
+/// @title Vaporwave Reward Tracker
+contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Ownable {
     using SafeERC20 for IERC20;
 
     uint256 public constant BASIS_POINTS_DIVISOR = 10000;
@@ -56,9 +75,11 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
 
     function initialize(address[] memory _depositTokens, address _distributor)
         external
-        onlyGov
+        onlyOwner
     {
-        require(!isInitialized, "RewardTracker: already initialized");
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
         isInitialized = true;
 
         for (uint256 i = 0; i < _depositTokens.length; i++) {
@@ -71,42 +92,46 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
 
     function setDepositToken(address _depositToken, bool _isDepositToken)
         external
-        onlyGov
+        onlyOwner
     {
         isDepositToken[_depositToken] = _isDepositToken;
     }
 
     function setInPrivateTransferMode(bool _inPrivateTransferMode)
         external
-        onlyGov
+        onlyOwner
     {
         inPrivateTransferMode = _inPrivateTransferMode;
     }
 
     function setInPrivateStakingMode(bool _inPrivateStakingMode)
         external
-        onlyGov
+        onlyOwner
     {
         inPrivateStakingMode = _inPrivateStakingMode;
     }
 
     function setInPrivateClaimingMode(bool _inPrivateClaimingMode)
         external
-        onlyGov
+        onlyOwner
     {
         inPrivateClaimingMode = _inPrivateClaimingMode;
     }
 
-    function setHandler(address _handler, bool _isActive) external onlyGov {
+    function setHandler(address _handler, bool _isActive) external onlyOwner {
         isHandler[_handler] = _isActive;
     }
 
-    // to help users who accidentally send their tokens to this contract
+    /// @notice Withdraw tokens to `_account`
+    /// @dev to help users who accidentally send their tokens to this contract
+    /// @param _token The address of the token to withdraw
+    /// @param _account The address of the account to receive the tokens
+    /// @param _amount T
     function withdrawToken(
         address _token,
         address _account,
         uint256 _amount
-    ) external onlyGov {
+    ) external onlyOwner {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
@@ -125,7 +150,7 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         nonReentrant
     {
         if (inPrivateStakingMode) {
-            revert("RewardTracker: action not enabled");
+            revert ActionNotEnabled();
         }
         _stake(msg.sender, msg.sender, _depositToken, _amount);
     }
@@ -146,7 +171,7 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         nonReentrant
     {
         if (inPrivateStakingMode) {
-            revert("RewardTracker: action not enabled");
+            revert ActionNotEnabled();
         }
         _unstake(msg.sender, _depositToken, _amount, msg.sender);
     }
@@ -198,11 +223,13 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
             return true;
         }
 
-        uint256 nextAllowance = allowances[_sender][msg.sender].sub(
-            _amount,
-            "RewardTracker: transfer amount exceeds allowance"
-        );
-        _approve(_sender, msg.sender, nextAllowance);
+        if (allowances[_sender][msg.sender] < _amount) {
+            revert InsufficientAllowance();
+        }
+        unchecked {
+            uint256 nextAllowance = allowances[_sender][msg.sender] - _amount;
+            _approve(_sender, msg.sender, nextAllowance);
+        }
         _transfer(_sender, _recipient, _amount);
         return true;
     }
@@ -222,7 +249,7 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         returns (uint256)
     {
         if (inPrivateClaimingMode) {
-            revert("RewardTracker: action not enabled");
+            revert ActionNotEnabled();
         }
         return _claim(msg.sender, _receiver);
     }
@@ -249,21 +276,14 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         }
         uint256 supply = totalSupply;
         uint256 pendingRewards = IRewardDistributor(distributor)
-            .pendingRewards()
-            .mul(PRECISION);
-        uint256 nextCumulativeRewardPerToken = cumulativeRewardPerToken.add(
-            pendingRewards.div(supply)
-        );
+            .pendingRewards() * PRECISION;
+        uint256 nextCumulativeRewardPerToken = cumulativeRewardPerToken +
+            (pendingRewards / supply);
         return
-            claimableReward[_account].add(
-                stakedAmount
-                    .mul(
-                        nextCumulativeRewardPerToken.sub(
-                            previousCumulatedRewardPerToken[_account]
-                        )
-                    )
-                    .div(PRECISION)
-            );
+            claimableReward[_account] +
+            ((stakedAmount *
+                (nextCumulativeRewardPerToken -
+                    previousCumulatedRewardPerToken[_account])) / PRECISION);
     }
 
     function rewardToken() public view returns (address) {
@@ -288,28 +308,30 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
     }
 
     function _mint(address _account, uint256 _amount) internal {
-        require(
-            _account != address(0),
-            "RewardTracker: mint to the zero address"
-        );
+        if (_account == address(0)) {
+            revert ZeroAddress();
+        }
 
-        totalSupply = totalSupply.add(_amount);
-        balances[_account] = balances[_account].add(_amount);
+        totalSupply += _amount;
+        balances[_account] += _amount;
 
         emit Transfer(address(0), _account, _amount);
     }
 
     function _burn(address _account, uint256 _amount) internal {
-        require(
-            _account != address(0),
-            "RewardTracker: burn from the zero address"
-        );
+        if (_account == address(0)) {
+            revert ZeroAddress();
+        }
 
-        balances[_account] = balances[_account].sub(
-            _amount,
-            "RewardTracker: burn amount exceeds balance"
-        );
-        totalSupply = totalSupply.sub(_amount);
+        if (balances[_account] < _amount) {
+            revert InsufficientBalance();
+        }
+
+        unchecked {
+            balances[_account] -= _amount;
+        }
+
+        totalSupply -= _amount;
 
         emit Transfer(_account, address(0), _amount);
     }
@@ -319,24 +341,23 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         address _recipient,
         uint256 _amount
     ) private {
-        require(
-            _sender != address(0),
-            "RewardTracker: transfer from the zero address"
-        );
-        require(
-            _recipient != address(0),
-            "RewardTracker: transfer to the zero address"
-        );
+        if (_sender == address(0) || _recipient == address(0)) {
+            revert ZeroAddress();
+        }
 
         if (inPrivateTransferMode) {
             _validateHandler();
         }
 
-        balances[_sender] = balances[_sender].sub(
-            _amount,
-            "RewardTracker: transfer amount exceeds balance"
-        );
-        balances[_recipient] = balances[_recipient].add(_amount);
+        if (balances[_sender] < _amount) {
+            revert InsufficientBalance();
+        }
+
+        unchecked {
+            balances[_sender] -= _amount;
+        }
+
+        balances[_recipient] += _amount;
 
         emit Transfer(_sender, _recipient, _amount);
     }
@@ -346,14 +367,9 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         address _spender,
         uint256 _amount
     ) private {
-        require(
-            _owner != address(0),
-            "RewardTracker: approve from the zero address"
-        );
-        require(
-            _spender != address(0),
-            "RewardTracker: approve to the zero address"
-        );
+        if (_owner == address(0) || _spender == address(0)) {
+            revert ZeroAddress();
+        }
 
         allowances[_owner][_spender] = _amount;
 
@@ -361,7 +377,9 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
     }
 
     function _validateHandler() private view {
-        require(isHandler[msg.sender], "RewardTracker: forbidden");
+        if (!isHandler[msg.sender]) {
+            revert InvalidHandler();
+        }
     }
 
     function _stake(
@@ -370,11 +388,12 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         address _depositToken,
         uint256 _amount
     ) private {
-        require(_amount > 0, "RewardTracker: invalid _amount");
-        require(
-            isDepositToken[_depositToken],
-            "RewardTracker: invalid _depositToken"
-        );
+        if (_amount == 0) {
+            revert ZeroAmount();
+        }
+        if (!isDepositToken[_depositToken]) {
+            revert InvalidDepositToken();
+        }
 
         IERC20(_depositToken).safeTransferFrom(
             _fundingAccount,
@@ -384,12 +403,9 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
 
         _updateRewards(_account);
 
-        stakedAmounts[_account] = stakedAmounts[_account].add(_amount);
-        depositBalances[_account][_depositToken] = depositBalances[_account][
-            _depositToken
-        ].add(_amount);
-        totalDepositSupply[_depositToken] = totalDepositSupply[_depositToken]
-            .add(_amount);
+        stakedAmounts[_account] += _amount;
+        depositBalances[_account][_depositToken] += _amount;
+        totalDepositSupply[_depositToken] += _amount;
 
         _mint(_account, _amount);
     }
@@ -400,30 +416,28 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         uint256 _amount,
         address _receiver
     ) private {
-        require(_amount > 0, "RewardTracker: invalid _amount");
-        require(
-            isDepositToken[_depositToken],
-            "RewardTracker: invalid _depositToken"
-        );
+        if (_amount == 0) {
+            revert ZeroAmount();
+        }
+        if (!isDepositToken[_depositToken]) {
+            revert InvalidDepositToken();
+        }
 
         _updateRewards(_account);
 
         uint256 stakedAmount = stakedAmounts[_account];
-        require(
-            stakedAmounts[_account] >= _amount,
-            "RewardTracker: _amount exceeds stakedAmount"
-        );
+        if (stakedAmount < _amount) {
+            revert InvalidAmount();
+        }
 
-        stakedAmounts[_account] = stakedAmount.sub(_amount);
+        stakedAmounts[_account] = stakedAmount - _amount;
 
         uint256 depositBalance = depositBalances[_account][_depositToken];
-        require(
-            depositBalance >= _amount,
-            "RewardTracker: _amount exceeds depositBalance"
-        );
-        depositBalances[_account][_depositToken] = depositBalance.sub(_amount);
-        totalDepositSupply[_depositToken] = totalDepositSupply[_depositToken]
-            .sub(_amount);
+        if (depositBalance < _amount) {
+            revert InvalidAmount();
+        }
+        depositBalances[_account][_depositToken] = depositBalance - _amount;
+        totalDepositSupply[_depositToken] -= _amount;
 
         _burn(_account, _amount);
         IERC20(_depositToken).safeTransfer(_receiver, _amount);
@@ -435,9 +449,9 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
         uint256 supply = totalSupply;
         uint256 _cumulativeRewardPerToken = cumulativeRewardPerToken;
         if (supply > 0 && blockReward > 0) {
-            _cumulativeRewardPerToken = _cumulativeRewardPerToken.add(
-                blockReward.mul(PRECISION).div(supply)
-            );
+            _cumulativeRewardPerToken =
+                _cumulativeRewardPerToken +
+                ((blockReward * PRECISION) / supply);
             cumulativeRewardPerToken = _cumulativeRewardPerToken;
         }
 
@@ -449,16 +463,11 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
 
         if (_account != address(0)) {
             uint256 stakedAmount = stakedAmounts[_account];
-            uint256 accountReward = stakedAmount
-                .mul(
-                    _cumulativeRewardPerToken.sub(
-                        previousCumulatedRewardPerToken[_account]
-                    )
-                )
-                .div(PRECISION);
-            uint256 _claimableReward = claimableReward[_account].add(
-                accountReward
-            );
+            uint256 accountReward = (stakedAmount *
+                (_cumulativeRewardPerToken -
+                    previousCumulatedRewardPerToken[_account])) / PRECISION;
+            uint256 _claimableReward = claimableReward[_account] +
+                accountReward;
 
             claimableReward[_account] = _claimableReward;
             previousCumulatedRewardPerToken[
@@ -466,18 +475,14 @@ contract RewardTracker is IERC20, ReentrancyGuard, IRewardTracker, Governable {
             ] = _cumulativeRewardPerToken;
 
             if (_claimableReward > 0 && stakedAmounts[_account] > 0) {
-                uint256 nextCumulativeReward = cumulativeRewards[_account].add(
-                    accountReward
-                );
+                uint256 nextCumulativeReward = cumulativeRewards[_account] +
+                    accountReward;
 
-                averageStakedAmounts[_account] = averageStakedAmounts[_account]
-                    .mul(cumulativeRewards[_account])
-                    .div(nextCumulativeReward)
-                    .add(
-                        stakedAmount.mul(accountReward).div(
-                            nextCumulativeReward
-                        )
-                    );
+                averageStakedAmounts[_account] =
+                    (averageStakedAmounts[_account] *
+                        cumulativeRewards[_account]) /
+                    nextCumulativeReward +
+                    ((stakedAmount * accountReward) / nextCumulativeReward);
 
                 cumulativeRewards[_account] = nextCumulativeReward;
             }
