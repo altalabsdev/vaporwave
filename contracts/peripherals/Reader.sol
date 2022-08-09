@@ -12,7 +12,6 @@ import "../amm/interfaces/IPancakeFactory.sol";
 
 import "../staking/interfaces/IVester.sol";
 
-// TODO add NatSpec
 /// @title Vaporwave Reader
 contract Reader is Ownable {
     /// USDV decimals
@@ -20,9 +19,9 @@ contract Reader is Ownable {
     /// Number of properties for a position
     uint8 public constant POSITION_PROPS_LENGTH = 9;
     /// Helper to avoid truncation errors in basis points calculations
-    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
+    uint16 public constant BASIS_POINTS_DIVISOR = 10000;
     /// Helper to avoid truncation errors in price calculations
-    uint256 public constant PRICE_PRECISION = 1e30;
+    uint128 public constant PRICE_PRECISION = 1e30;
 
     /// True if there is a max global short size
     bool public hasMaxGlobalShortSizes;
@@ -154,6 +153,12 @@ contract Reader is Ownable {
         return (amountOutAfterFees, feeAmount);
     }
 
+    /// @notice Get the fee basis points
+    /// @param _vault The vault address
+    /// @param _tokenIn The token to swap in
+    /// @param _tokenOut The token to swap out
+    /// @param _amountIn The amount in
+    /// @return A tuple (fee basis points, feeBasisPoints0, feeBasisPoints1)
     function getFeeBasisPoints(
         IVault _vault,
         address _tokenIn,
@@ -204,6 +209,10 @@ contract Reader is Ownable {
         return (feeBasisPoints, feesBasisPoints0, feesBasisPoints1);
     }
 
+    /// @notice Get the fee amounts
+    /// @param _vault The vault address
+    /// @param _tokens An array of tokens to query for fees
+    /// @return An array of fee amounts
     function getFees(address _vault, address[] memory _tokens)
         public
         view
@@ -216,6 +225,9 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the total staked amounts
+    /// @param _yieldTokens An array of tokens to query for staked amounts
+    /// @return An array of total staked amounts
     function getTotalStaked(address[] memory _yieldTokens)
         public
         view
@@ -229,6 +241,10 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the staking info for `_account`
+    /// @param _account The address to query for staking info
+    /// @param _yieldTrackers An array of yield trackers to query for staking info
+    /// @return An array of staking info (even index = claimable amounts, odd index = tokens per interval)
     function getStakingInfo(address _account, address[] memory _yieldTrackers)
         public
         view
@@ -246,6 +262,10 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the vesting info for `_account`
+    /// @param _account The address to query for vesting info
+    /// @param _vesters An array of vesters to query for vesting info
+    /// @return An array of vesting info
     function getVestingInfo(address _account, address[] memory _vesters)
         public
         view
@@ -271,6 +291,10 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get token pair info from `_factory`
+    /// @param _factory The AMM factory address
+    /// @param _tokens An array of tokens to query for token pair info
+    /// @return An array of token pair info
     function getPairInfo(address _factory, address[] memory _tokens)
         public
         view
@@ -292,6 +316,11 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get funding rates for an array of tokens
+    /// @param _vault The vault address
+    /// @param _weth The WETH address
+    /// @param _tokens An array of tokens to query for funding rates
+    /// @return An array of funding rates
     function getFundingRates(
         address _vault,
         address _weth,
@@ -331,6 +360,11 @@ contract Reader is Ownable {
         return fundingRates;
     }
 
+    /// @notice Get the token supply of `_token`
+    /// @dev Calculates the total supply minus the balance of `_excludedAccounts`
+    /// @param _token The token address
+    /// @param _excludedAccounts An array of accounts to exclude from the supply calculation
+    /// @return The token supply
     function getTokenSupply(IERC20 _token, address[] memory _excludedAccounts)
         public
         view
@@ -345,6 +379,10 @@ contract Reader is Ownable {
         return supply;
     }
 
+    /// @notice Get the total balance of `_token` for `_accounts`
+    /// @param _token The token address
+    /// @param _accounts An array of accounts to query for balance
+    /// @return The total balance of `_token` for `_accounts`
     function getTotalBalance(IERC20 _token, address[] memory _accounts)
         public
         view
@@ -359,6 +397,11 @@ contract Reader is Ownable {
         return totalBalance;
     }
 
+    /// @notice Get the token balances for `_account`
+    /// @dev Address(0) is used for the native currency
+    /// @param _account The account to query for token balances
+    /// @param _tokens An array of tokens to query for balances
+    /// @return An array of token balances
     function getTokenBalances(address _account, address[] memory _tokens)
         public
         view
@@ -376,6 +419,10 @@ contract Reader is Ownable {
         return balances;
     }
 
+    /// @notice Get the token balances for `_account` + total supplies
+    /// @dev Address(0) is used for the native currency
+    /// @param _account The account to query for token balances
+    /// @param _tokens An array of tokens to query for balances
     function getTokenBalancesWithSupplies(
         address _account,
         address[] memory _tokens
@@ -395,6 +442,10 @@ contract Reader is Ownable {
         return balances;
     }
 
+    /// @notice Get the prices for an array of tokens
+    /// @param _priceFeed The price feed address
+    /// @param _tokens An array of tokens to query for prices
+    /// @return An array of token prices
     function getPrices(IVaultPriceFeed _priceFeed, address[] memory _tokens)
         public
         view
@@ -439,6 +490,14 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the vault token info
+    /// @param _vault The vault address
+    /// @param _weth The WETH address
+    /// @param _usdvAmount The USDV amount
+    /// @param _tokens An array of tokens to query for info
+    /* @return An array of vault token info
+     * (pool amounts, usdv amounts, redemption amounts, token weights, min prices, max prices, guaranteed usd, min primary prices, max primary prices)
+     */
     function getVaultTokenInfo(
         address _vault,
         address _weth,
@@ -480,6 +539,15 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the full vault token info
+    /// @param _vault The vault address
+    /// @param _weth The WETH address
+    /// @param _usdvAmount The USDV amount
+    /// @param _tokens An array of tokens to query for info
+    /* @return An array of full vault token info
+     * (pool amounts, reserved amounts, usdv amounts, redemption amounts, token weights,
+     * min prices, max prices, guaranteed usd, max primary prices, min primary prices)
+     */
     function getFullVaultTokenInfo(
         address _vault,
         address _weth,
@@ -523,6 +591,14 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the vault token info
+    /// @param _vault The vault address
+    /// @param _weth The WETH address
+    /// @param _usdvAmount The USDV amount
+    /// @param _tokens An array of tokens to query for info
+    /* @return An array of vault token info
+     * (pool amounts, reserved amounts, usdv amounts, redemption amounts, token weights, buffer amounts, max usdv amounts, global short sizes, min prices, max prices, guaranteed usd, min primary prices, max primary prices)
+     */
     function getVaultTokenInfoV2(
         address _vault,
         address _weth,
@@ -572,6 +648,16 @@ contract Reader is Ownable {
         return amounts;
     }
 
+    /// @notice Get the positions for `_account`
+    /// @param _vault The vault address
+    /// @param _account The account to query for positions
+    /// @param _collateralTokens An array of collateral tokens
+    /// @param _indexTokens An array of index tokens
+    /// @param _isLong An array of booleans indicating whether the position is long or short
+    /* @return An array of positions
+    * (size, collateral, average prirce, entry funding rate, 
+    has realized profit (bool), realized PnL, last increased time, has profit (bool), delta)
+    */
     function getPositions(
         address _vault,
         address _account,
