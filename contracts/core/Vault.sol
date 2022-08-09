@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
 
 import "../tokens/interfaces/IUSDV.sol";
 import "./interfaces/IVault.sol";
@@ -45,17 +46,18 @@ error SameToken();
 /// Transaction gas price is greater than max gas price
 error InvalidGasPrice();
 /// Sender is not a valid manager
-error InvalidManager();
+error OnlyManager();
 /// Sender is not the owner
-error InvalidOwner();
+error OnlyOwner();
 /// Sender is not a valid router
-error InvalidRouter();
+error OnlyRouter();
 /// Max global short size will be exceeded
 error MaxShortsExceeded();
 
 /// @title Vaporwave Vault
 contract Vault is ReentrancyGuard, IVault {
     using SafeERC20 for IERC20;
+    using Counters for Counters.Counter;
 
     struct Position {
         uint256 size;
@@ -67,34 +69,46 @@ contract Vault is ReentrancyGuard, IVault {
         uint256 lastIncreasedTime;
     }
 
-    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
-    uint256 public constant FUNDING_RATE_PRECISION = 1000000;
-    uint256 public constant PRICE_PRECISION = 1e30;
-    uint256 public constant MIN_LEVERAGE = 10000; // 1x
-    uint256 public constant USDV_DECIMALS = 18;
-    uint256 public constant MAX_FEE_BASIS_POINTS = 500; // 5%
-    uint256 public constant MAX_LIQUIDATION_FEE_USD = 100 * PRICE_PRECISION; // 100 USD
+    /// USDV decimals is 18
+    uint8 public constant USDV_DECIMALS = 18;
+    /// Helper to avoid truncation errors in basis points calculations
+    uint16 public constant BASIS_POINTS_DIVISOR = 1e4;
+    /// The minimum leverage is 1x (10,000)
+    uint16 public constant MIN_LEVERAGE = 1e4;
+    /// Helper to avoid truncation errors in funding rate calculations
+    uint32 public constant FUNDING_RATE_PRECISION = 1e6;
+    /// Helper to avoid truncation errors in price calculations
+    uint128 public constant PRICE_PRECISION = 1e30;
+    /// The max fee basis points is 5% (500)
+    uint16 public constant MAX_FEE_BASIS_POINTS = 500;
+    /// The max liquidation fee is 100 USD (1e32)
+    uint128 public constant MAX_LIQUIDATION_FEE_USD = 100 * PRICE_PRECISION;
+    /// The minimum funding rate interval is 1 hour (3600 seconds)
     uint256 public constant MIN_FUNDING_RATE_INTERVAL = 1 hours;
-    uint256 public constant MAX_FUNDING_RATE_FACTOR = 10000; // 1%
+    /// The max funding rate factor is 1% (10,000)
+    uint256 public constant MAX_FUNDING_RATE_FACTOR = 10000;
 
+    /// True if the vault is initialzied
     bool public override isInitialized;
+    /// True if swaps are enabled
     bool public override isSwapEnabled = true;
+    /// True if leverage is enabled
     bool public override isLeverageEnabled = true;
 
+    /// The vault utils address
     IVaultUtils public vaultUtils;
-
-    address public errorController;
-
+    /// The router address
     address public override router;
+    /// The price feed address
     address public override priceFeed;
-
+    /// USD Vaporwave (USDV) token address
     address public override usdv;
+    /// The address of the vault owner
     address public override owner;
+    /// The maximum leverage
+    uint256 public override maxLeverage = 5e5; // 50x
 
-    uint256 public override whitelistedTokenCount; // TODO change to counter
-
-    uint256 public override maxLeverage = 50 * 10000; // 50x
-
+    /// The liquidation fee in USD
     uint256 public override liquidationFeeUsd;
     uint256 public override taxBasisPoints = 50; // 0.5%
     uint256 public override stableTaxBasisPoints = 20; // 0.2%
@@ -104,7 +118,7 @@ contract Vault is ReentrancyGuard, IVault {
     uint256 public override marginFeeBasisPoints = 10; // 0.1%
 
     uint256 public override minProfitTime;
-    bool public override hasDynamicFees = false;
+    bool public override hasDynamicFees;
 
     uint256 public override fundingInterval = 8 hours;
     uint256 public override fundingRateFactor;
@@ -112,12 +126,14 @@ contract Vault is ReentrancyGuard, IVault {
     uint256 public override totalTokenWeights;
 
     bool public includeAmmPrice = true;
-    bool public useSwapPricing = false;
+    bool public useSwapPricing;
 
-    bool public override inManagerMode = false;
-    bool public override inPrivateLiquidationMode = false;
+    bool public override inManagerMode;
+    bool public override inPrivateLiquidationMode;
 
     uint256 public override maxGasPrice;
+
+    Counters.Counter private _whitelistedTokenCount;
 
     mapping(address => mapping(address => bool))
         public
@@ -272,11 +288,13 @@ contract Vault is ReentrancyGuard, IVault {
     event IncreaseGuaranteedUsd(address token, uint256 amount);
     event DecreaseGuaranteedUsd(address token, uint256 amount);
 
+    constructor() {
+        // solhint-disable-next-line avoid-tx-origin
+        owner = tx.origin;
+    }
+
     // once the parameters are verified to be working correctly,
     // gov should be set to a timelock contract or a governance contract
-    constructor() {
-        owner = msg.sender;
-    }
 
     /// @notice Initialize the contract
     /// @param _router The address of the router contract
@@ -308,7 +326,7 @@ contract Vault is ReentrancyGuard, IVault {
     }
 
     /// @notice Set the vault utils contract
-    /// @dev Can only be called by the contract governor
+    /// @dev Can only be called by the contract owner
     /// @param _vaultUtils The vault utils contract
     function setVaultUtils(IVaultUtils _vaultUtils) external override {
         _onlyOwner();
@@ -316,14 +334,14 @@ contract Vault is ReentrancyGuard, IVault {
     }
 
     /// @notice Toggle manager mode
-    /// @dev Can only be called by the contract governor
+    /// @dev Can only be called by the contract owner
     function setInManagerMode(bool _inManagerMode) external override {
         _onlyOwner();
         inManagerMode = _inManagerMode;
     }
 
     /// @notice Set a manager address
-    /// @dev Can only be called by the contract governor
+    /// @dev Can only be called by the contract owner
     /// @param _manager Address to be added or removed from the manager list
     /// @param _isManager True if the address should be added to the manager list, false if it should be removed
     function setManager(address _manager, bool _isManager) external override {
@@ -332,7 +350,7 @@ contract Vault is ReentrancyGuard, IVault {
     }
 
     /// @notice Toggle private liquidation mode
-    /// @dev Can only be called by the contract governor
+    /// @dev Can only be called by the contract owner
     /// @param _inPrivateLiquidationMode True if the contract should be in private liquidation mode, false otherwise
     function setInPrivateLiquidationMode(bool _inPrivateLiquidationMode)
         external
@@ -343,7 +361,7 @@ contract Vault is ReentrancyGuard, IVault {
     }
 
     /// @notice Set a liquidator address
-    /// @dev Can only be called by the contract governor
+    /// @dev Can only be called by the contract owner
     /// @param _liquidator Address to be added or removed from the liquidator list
     /// @param _isActive True if the address should be added to the liquidator list, false if it should be removed
     function setLiquidator(address _liquidator, bool _isActive)
@@ -355,7 +373,7 @@ contract Vault is ReentrancyGuard, IVault {
     }
 
     /// @notice Toggle swap enabled
-    /// @dev Can only be called by the contract governor
+    /// @dev Can only be called by the contract owner
     /// @param _isSwapEnabled True if the contract should be in swap enabled mode, false otherwise
     function setIsSwapEnabled(bool _isSwapEnabled) external override {
         _onlyOwner();
@@ -406,7 +424,7 @@ contract Vault is ReentrancyGuard, IVault {
     }
 
     /// @notice Set Max Global Short Size
-    /// @dev Called by the governor (timelock contract)
+    /// @dev Called by the owner (timelock contract)
     /// @param _token The token to set the max short size for
     /// @param _amount The max short size for the token
     function setMaxGlobalShortSize(address _token, uint256 _amount)
@@ -437,8 +455,7 @@ contract Vault is ReentrancyGuard, IVault {
                 _swapFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
                 _stableSwapFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
                 _marginFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _liquidationFeeUsd <= MAX_FEE_BASIS_POINTS &&
-                _minProfitTime <= MAX_FEE_BASIS_POINTS
+                _liquidationFeeUsd <= MAX_LIQUIDATION_FEE_USD
         );
         taxBasisPoints = _taxBasisPoints;
         stableTaxBasisPoints = _stableTaxBasisPoints;
@@ -485,7 +502,7 @@ contract Vault is ReentrancyGuard, IVault {
         _onlyOwner();
         // increment token count for the first time
         if (!whitelistedTokens[_token]) {
-            whitelistedTokenCount = whitelistedTokenCount++;
+            _whitelistedTokenCount.increment();
             allWhitelistedTokens.push(_token);
         }
 
@@ -519,7 +536,7 @@ contract Vault is ReentrancyGuard, IVault {
         delete maxUsdvAmounts[_token];
         delete stableTokens[_token];
         delete shortableTokens[_token];
-        whitelistedTokenCount = whitelistedTokenCount--;
+        _whitelistedTokenCount.decrement();
     }
 
     /// @notice Withdraw fees
@@ -874,6 +891,7 @@ contract Vault is ReentrancyGuard, IVault {
             _isLong
         );
         position.size += _sizeDelta;
+        // solhint-disable-next-line not-rely-on-time
         position.lastIncreasedTime = block.timestamp;
         if (position.size == 0) {
             revert InvalidPositionSize();
@@ -1096,6 +1114,12 @@ contract Vault is ReentrancyGuard, IVault {
         return allWhitelistedTokens.length;
     }
 
+    /// @notice Get the whitelisted token count
+    /// @return The whitelisted token count
+    function whitelistedTokenCount() external view override returns (uint256) {
+        return _whitelistedTokenCount.current();
+    }
+
     /// @notice Update the cumulative funding rate
     /// @dev Emits an `UpdateFundingRate` event
     /// @param _collateralToken The collateral token
@@ -1114,6 +1138,7 @@ contract Vault is ReentrancyGuard, IVault {
 
         if (lastFundingTimes[_collateralToken] == 0) {
             lastFundingTimes[_collateralToken] =
+                // solhint-disable-next-line not-rely-on-time
                 (block.timestamp / fundingInterval) *
                 fundingInterval;
             return;
@@ -1121,6 +1146,7 @@ contract Vault is ReentrancyGuard, IVault {
 
         if (
             lastFundingTimes[_collateralToken] + fundingInterval >
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp
         ) {
             return;
@@ -1129,6 +1155,7 @@ contract Vault is ReentrancyGuard, IVault {
         uint256 fundingRate = getNextFundingRate(_collateralToken);
         cumulativeFundingRates[_collateralToken] += fundingRate;
         lastFundingTimes[_collateralToken] =
+            // solhint-disable-next-line not-rely-on-time
             (block.timestamp / fundingInterval) *
             fundingInterval;
 
@@ -1427,10 +1454,11 @@ contract Vault is ReentrancyGuard, IVault {
         override
         returns (uint256)
     {
+        // solhint-disable-next-line not-rely-on-time
         if (lastFundingTimes[_token] + fundingInterval > block.timestamp) {
             return 0;
         }
-
+        // solhint-disable-next-line not-rely-on-time
         uint256 intervals = block.timestamp -
             lastFundingTimes[_token] /
             fundingInterval;
@@ -1574,6 +1602,7 @@ contract Vault is ReentrancyGuard, IVault {
 
         // if the minProfitTime has passed then there will be no min profit threshold
         // the min profit threshold helps to prevent front-running issues
+        // solhint-disable-next-line not-rely-on-time
         uint256 minBps = block.timestamp > _lastIncreasedTime + minProfitTime
             ? 0
             : minProfitBasisPoints[_indexToken];
@@ -2168,7 +2197,7 @@ contract Vault is ReentrancyGuard, IVault {
             return;
         }
         if (!approvedRouters[_account][msg.sender]) {
-            revert InvalidRouter();
+            revert OnlyRouter();
         }
     }
 
@@ -2197,7 +2226,7 @@ contract Vault is ReentrancyGuard, IVault {
     // we have this validation as a function instead of a modifier to reduce contract size
     function _onlyOwner() private view {
         if (msg.sender != owner) {
-            revert InvalidOwner();
+            revert OnlyOwner();
         }
     }
 
@@ -2205,7 +2234,7 @@ contract Vault is ReentrancyGuard, IVault {
     function _validateManager() private view {
         if (inManagerMode) {
             if (!isManager[msg.sender]) {
-                revert InvalidManager();
+                revert OnlyManager();
             }
         }
     }
