@@ -31,22 +31,27 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
     string public name;
     /// The token symbol
     string public symbol;
-    /// The decimals of the token is 18
-    uint8 public constant decimals = 18;
 
     /// The total supply of the token
     uint256 public override totalSupply;
     /// The non-staked supply
     uint256 public nonStakingSupply;
 
+    /// Mapping of user token balances
     mapping(address => uint256) public balances;
+    /// Mapping of user approved allowances
     mapping(address => mapping(address => uint256)) public allowances;
 
+    /// Array of yield trackers
     address[] public yieldTrackers;
+    /// Mapping of non-staking accounts
     mapping(address => bool) public nonStakingAccounts;
+    /// Mapping of admins
     mapping(address => bool) public admins;
 
+    /// True if contract is in whitelist mode
     bool public inWhitelistMode;
+    /// Mapping of whitelisted handlers
     mapping(address => bool) public whitelistedHandlers;
 
     modifier onlyAdmin() {
@@ -67,6 +72,9 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         _mint(msg.sender, _initialSupply);
     }
 
+    /// @notice Set the token name and symbol
+    /// @param _name The new name of the token
+    /// @param _symbol The new symbol of the token
     function setInfo(string memory _name, string memory _symbol)
         external
         onlyOwner
@@ -75,6 +83,8 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         symbol = _symbol;
     }
 
+    /// @notice Set the array of yield trackers
+    /// @param _yieldTrackers The array of yield trackers
     function setYieldTrackers(address[] memory _yieldTrackers)
         external
         onlyOwner
@@ -82,10 +92,14 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         yieldTrackers = _yieldTrackers;
     }
 
+    /// @notice Add `_account` as an admin
+    /// @param _account The account to add as an admin
     function addAdmin(address _account) external onlyOwner {
         admins[_account] = true;
     }
 
+    /// @notice Remove `_account` as an admin
+    /// @param _account The account to remove as an admin
     function removeAdmin(address _account) external override onlyOwner {
         admins[_account] = false;
     }
@@ -103,10 +117,15 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
+    /// @notice Set the contract in whitelist mode: `_inWhitelistMode`
+    /// @param _inWhitelistMode True if contract is in whitelist mode
     function setInWhitelistMode(bool _inWhitelistMode) external onlyOwner {
         inWhitelistMode = _inWhitelistMode;
     }
 
+    /// @notice Set `_handler` as a whitelisted handler: `_isWhitelisted`
+    /// @param _handler The address of the handler
+    /// @param _isWhitelisted True if handler is whitelisted, false otherwise
     function setWhitelistedHandler(address _handler, bool _isWhitelisted)
         external
         onlyOwner
@@ -190,6 +209,10 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         return true;
     }
 
+    /// @notice Approve `_spender` to transfer `_amount` tokens
+    /// @param _spender The address that is allowed to spend the tokens
+    /// @param _amount The amount of tokens approved
+    /// @return Whether the approval was successful
     function approve(address _spender, uint256 _amount)
         external
         override
@@ -232,6 +255,10 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         return balances[_account];
     }
 
+    /// @notice Get the allowance of `_spender` for `_owner`
+    /// @param _owner The address that owns the tokens
+    /// @param _spender The address that is allowed to spend the tokens
+    /// @return The amount of tokens that `_spender` is allowed to spend for `_owner`
     function allowance(address _owner, address _spender)
         external
         view
@@ -239,6 +266,12 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         returns (uint256)
     {
         return allowances[_owner][_spender];
+    }
+
+    /// @notice Get the token decimals (18)
+    /// @return The token decimals (18)
+    function decimals() external pure returns (uint8) {
+        return 18;
     }
 
     function _mint(address _account, uint256 _amount) internal {
