@@ -280,6 +280,6 @@ describe("OrderBook, cancelMultiple", function () {
 
     await expect(
       orderBook.connect(user0).cancelMultiple([0], [], [])
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
   });
 });

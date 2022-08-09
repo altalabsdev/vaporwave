@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { deployContract } from "../../shared/fixtures";
+import log from "ololog";
 import { time, mine } from "@nomicfoundation/hardhat-network-helpers";
 import { expandDecimals, reportGasUsed, gasUsed } from "../../shared/utilities";
 import { toChainlinkPrice } from "../../shared/chainlink";
@@ -229,12 +230,12 @@ describe("OrderBook, decrease position orders", () => {
     [x] partial decrease
     */
 
-  it("Create decrase order, bad fee", async () => {
+  it("Create decrease order, bad fee", async () => {
     await expect(
       defaultCreateDecreaseOrder({
         executionFee: 100,
       })
-    ).to.be.revertedWith("OrderBook: insufficient execution fee");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
   });
 
   it("Create decrease order, long", async () => {
@@ -278,7 +279,7 @@ describe("OrderBook, decrease position orders", () => {
           newTriggerPrice,
           newTriggerAboveThreshold
         )
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     const tx2 = await orderBook
       .connect(defaults.user)
@@ -398,6 +399,7 @@ describe("OrderBook, decrease position orders", () => {
         defaults.user.address,
         orderIndex
       );
+
       await expect(
         orderBook.executeDecreaseOrder(
           order.account,
@@ -405,7 +407,7 @@ describe("OrderBook, decrease position orders", () => {
           user1.address
         ),
         "1"
-      ).to.be.revertedWith("OrderBook: invalid price for execution");
+      ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
       if (setPriceTwice) {
         // on first price update all limit orders are still invalid
@@ -417,7 +419,7 @@ describe("OrderBook, decrease position orders", () => {
             user1.address
           ),
           "2"
-        ).to.be.revertedWith("OrderBook: invalid price for execution");
+        ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
       }
 
       // now both min and max prices satisfies requirement
@@ -429,7 +431,7 @@ describe("OrderBook, decrease position orders", () => {
           user1.address
         ),
         "3"
-      ).to.not.be.revertedWith("OrderBook: invalid price for execution");
+      ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
       // so we are sure we passed price validations inside OrderBook
 
       orderIndex++;
@@ -444,7 +446,7 @@ describe("OrderBook, decrease position orders", () => {
 
     await expect(
       orderBook.executeDecreaseOrder(defaults.user.address, 1, user1.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
   });
 
   it("Execute decrease order, long", async () => {
@@ -675,7 +677,7 @@ describe("OrderBook, decrease position orders", () => {
 
     await expect(
       orderBook.connect(defaults.user).cancelDecreaseOrder(1)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     const balanceBefore = await defaults.user.getBalance();
     const tx = await orderBook.connect(defaults.user).cancelDecreaseOrder(0);

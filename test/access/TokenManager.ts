@@ -19,7 +19,6 @@ describe("TokenManager", () => {
     user0: any,
     user1: any,
     user2: any,
-    user3: any,
     signer0: any,
     signer1: any,
     signer2: any;
@@ -35,7 +34,7 @@ describe("TokenManager", () => {
   let vwaveAddress = "0x2451dB68DeD81900C4F16ae1af597E9658689734";
 
   before(async () => {
-    [wallet, user0, user1, user2, user3, signer0, signer1, signer2] =
+    [wallet, user0, user1, user2, signer0, signer1, signer2] =
       await ethers.getSigners();
 
     let Eth = await ethers.getContractFactory("Token");
@@ -91,7 +90,7 @@ describe("TokenManager", () => {
         signer1.address,
         signer2.address,
       ])
-    ).to.be.revertedWith("TokenManager: already initialized");
+    ).to.be.revertedWithCustomError(tokenManager, "AlreadyInitialized");
 
     expect(await tokenManager.signers(0)).eq(signer0.address);
     expect(await tokenManager.signers(1)).eq(signer1.address);
@@ -109,7 +108,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signalApprove(eth.address, user2.address, amount)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(wallet)
@@ -121,13 +120,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signApprove(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(signer2)
         .signApprove(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(wallet)
@@ -137,7 +136,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signApprove(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(signer2)
@@ -147,7 +146,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(signer2)
         .signApprove(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: already signed");
+    ).to.be.revertedWithCustomError(tokenManager, "AlreadySigned");
 
     await tokenManager
       .connect(signer1)
@@ -159,13 +158,13 @@ describe("TokenManager", () => {
 
     await expect(
       tokenManager.connect(user0).approve(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approve(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(wallet)
@@ -175,19 +174,19 @@ describe("TokenManager", () => {
       tokenManager
         .connect(wallet)
         .approve(vwave.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approve(eth.address, user0.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approve(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: action not authorized");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer0)
@@ -197,7 +196,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(wallet)
         .approve(eth.address, user2.address, amount, 1)
-    ).to.be.revertedWith("TokenManager: insufficient authorization");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer2)
@@ -211,7 +210,7 @@ describe("TokenManager", () => {
           user1.address,
           ethers.utils.parseEther("4")
         )
-    ).to.be.revertedWith("ERC20: transfer amount exceeds allowance");
+    ).to.be.revertedWithCustomError(eth, "InsufficientAllowance");
 
     await tokenManager
       .connect(wallet)
@@ -225,7 +224,7 @@ describe("TokenManager", () => {
           user1.address,
           ethers.utils.parseEther("6")
         )
-    ).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+    ).to.be.revertedWithCustomError(eth, "InsufficientBalance");
 
     expect(await eth.balanceOf(user1.address)).eq(0);
     await eth
@@ -239,7 +238,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signalApproveNFT(eth.address, user2.address, nftId)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(wallet)
@@ -251,13 +250,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signApproveNFT(eth.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(signer2)
         .signApproveNFT(eth.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(wallet)
@@ -267,7 +266,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signApproveNFT(eth.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(signer2)
@@ -277,7 +276,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(signer2)
         .signApproveNFT(eth.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: already signed");
+    ).to.be.revertedWithCustomError(tokenManager, "AlreadySigned");
 
     await tokenManager
       .connect(signer1)
@@ -292,13 +291,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .approveNFT(nft0.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFT(nft0.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(wallet)
@@ -308,25 +307,25 @@ describe("TokenManager", () => {
       tokenManager
         .connect(wallet)
         .approveNFT(nft1.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFT(nft0.address, user0.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFT(nft0.address, user2.address, nftId + 1, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFT(nft0.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: action not authorized");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer0)
@@ -336,7 +335,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(wallet)
         .approveNFT(nft0.address, user2.address, nftId, 1)
-    ).to.be.revertedWith("TokenManager: insufficient authorization");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer2)
@@ -379,7 +378,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signalApproveNFTs(nft0.address, user2.address, [nftId0, nftId1])
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(wallet)
@@ -394,13 +393,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signApproveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(signer2)
         .signApproveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(wallet)
@@ -410,7 +409,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signApproveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(signer2)
@@ -420,7 +419,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(signer2)
         .signApproveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: already signed");
+    ).to.be.revertedWithCustomError(tokenManager, "AlreadySigned");
 
     await tokenManager
       .connect(signer1)
@@ -438,13 +437,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .approveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(wallet)
@@ -454,25 +453,25 @@ describe("TokenManager", () => {
       tokenManager
         .connect(wallet)
         .approveNFTs(nft1.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFTs(nft0.address, user0.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFTs(nft0.address, user2.address, [nftId0, nftId1 + 1], 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager
         .connect(wallet)
         .approveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: action not authorized");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer0)
@@ -482,7 +481,7 @@ describe("TokenManager", () => {
       tokenManager
         .connect(wallet)
         .approveNFTs(nft0.address, user2.address, [nftId0, nftId1], 1)
-    ).to.be.revertedWith("TokenManager: insufficient authorization");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer2)
@@ -589,13 +588,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signalSetAdmin(timelock.address, user1.address)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(wallet)
         .signalSetAdmin(timelock.address, user1.address)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await tokenManager
       .connect(signer0)
@@ -607,19 +606,19 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signSetAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(wallet)
         .signSetAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(signer1)
         .signSetAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(signer1)
@@ -629,13 +628,13 @@ describe("TokenManager", () => {
       tokenManager
         .connect(user0)
         .signSetAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager
         .connect(signer1)
         .signSetAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: already signed");
+    ).to.be.revertedWithCustomError(tokenManager, "AlreadySigned");
 
     await tokenManager
       .connect(signer2)
@@ -645,21 +644,21 @@ describe("TokenManager", () => {
       tokenManager
         .connect(signer2)
         .signSetAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: already signed");
+    ).to.be.revertedWithCustomError(tokenManager, "AlreadySigned");
   });
 
   it("setAdmin", async () => {
     await expect(
       tokenManager.connect(user0).setAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager.connect(wallet).setAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+    ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
     await expect(
       tokenManager.connect(signer0).setAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await tokenManager
       .connect(signer0)
@@ -667,19 +666,19 @@ describe("TokenManager", () => {
 
     await expect(
       tokenManager.connect(signer0).setAdmin(user0.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager.connect(signer0).setAdmin(timelock.address, user0.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager.connect(signer0).setAdmin(timelock.address, user1.address, 2)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
     await expect(
       tokenManager.connect(signer0).setAdmin(timelock.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: insufficient authorization");
+    ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
     await tokenManager
       .connect(signer2)
@@ -692,147 +691,149 @@ describe("TokenManager", () => {
     expect(await timelock.admin()).eq(user1.address);
   });
 
-  it("signalSetGov", async () => {
-    await expect(
-      tokenManager
-        .connect(user0)
-        .signalSetGov(timelock.address, vwave.address, user1.address)
-    ).to.be.revertedWith("TokenManager: forbidden");
+  // NOTE: VWAVE does not have a setGov function
 
-    await tokenManager
-      .connect(wallet)
-      .signalSetGov(timelock.address, vwave.address, user1.address);
-  });
+  // it("signalSetGov", async () => {
+  //   await expect(
+  //     tokenManager
+  //       .connect(user0)
+  //       .signalSetGov(timelock.address, vwave.address, user1.address)
+  //   ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
-  it("signSetGov", async () => {
-    await expect(
-      tokenManager
-        .connect(user0)
-        .signSetGov(timelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+  //   await tokenManager
+  //     .connect(wallet)
+  //     .signalSetGov(timelock.address, vwave.address, user1.address);
+  // });
 
-    await expect(
-      tokenManager
-        .connect(signer2)
-        .signSetGov(timelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+  // it("signSetGov", async () => {
+  //   await expect(
+  //     tokenManager
+  //       .connect(user0)
+  //       .signSetGov(timelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
-    await tokenManager
-      .connect(wallet)
-      .signalSetGov(timelock.address, vwave.address, user1.address);
+  //   await expect(
+  //     tokenManager
+  //       .connect(signer2)
+  //       .signSetGov(timelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
-    await expect(
-      tokenManager
-        .connect(user0)
-        .signSetGov(timelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+  //   await tokenManager
+  //     .connect(wallet)
+  //     .signalSetGov(timelock.address, vwave.address, user1.address);
 
-    await tokenManager
-      .connect(signer2)
-      .signSetGov(timelock.address, vwave.address, user1.address, 1);
+  //   await expect(
+  //     tokenManager
+  //       .connect(user0)
+  //       .signSetGov(timelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
-    await expect(
-      tokenManager
-        .connect(signer2)
-        .signSetGov(timelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: already signed");
+  //   await tokenManager
+  //     .connect(signer2)
+  //     .signSetGov(timelock.address, vwave.address, user1.address, 1);
 
-    await tokenManager
-      .connect(signer1)
-      .signSetGov(timelock.address, vwave.address, user1.address, 1);
-  });
+  //   await expect(
+  //     tokenManager
+  //       .connect(signer2)
+  //       .signSetGov(timelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "AlreadySigned");
 
-  it("setGov", async () => {
-    await vwave.setGov(vwaveTimelock.address);
+  //   await tokenManager
+  //     .connect(signer1)
+  //     .signSetGov(timelock.address, vwave.address, user1.address, 1);
+  // });
 
-    await expect(
-      tokenManager
-        .connect(user0)
-        .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: forbidden");
+  // it("setGov", async () => {
+  //   await vwave.setGov(vwaveTimelock.address);
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+  //   await expect(
+  //     tokenManager
+  //       .connect(user0)
+  //       .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "Forbidden");
 
-    await tokenManager
-      .connect(wallet)
-      .signalSetGov(vwaveTimelock.address, vwave.address, user1.address);
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(user2.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+  //   await tokenManager
+  //     .connect(wallet)
+  //     .signalSetGov(vwaveTimelock.address, vwave.address, user1.address);
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(vwaveTimelock.address, user0.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(user2.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(vwaveTimelock.address, vwave.address, user2.address, 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(vwaveTimelock.address, user0.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(vwaveTimelock.address, vwave.address, user1.address, 1 + 1)
-    ).to.be.revertedWith("TokenManager: action not signalled");
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(vwaveTimelock.address, vwave.address, user2.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: action not authorized");
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(vwaveTimelock.address, vwave.address, user1.address, 1 + 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotSignalled");
 
-    await tokenManager
-      .connect(signer0)
-      .signSetGov(vwaveTimelock.address, vwave.address, user1.address, 1);
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
-    await expect(
-      tokenManager
-        .connect(wallet)
-        .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
-    ).to.be.revertedWith("TokenManager: insufficient authorization");
+  //   await tokenManager
+  //     .connect(signer0)
+  //     .signSetGov(vwaveTimelock.address, vwave.address, user1.address, 1);
 
-    await expect(
-      vwaveTimelock.connect(wallet).signalSetGov(vwave.address, user1.address)
-    ).to.be.revertedWith("GmxTimelock: forbidden");
+  //   await expect(
+  //     tokenManager
+  //       .connect(wallet)
+  //       .setGov(vwaveTimelock.address, vwave.address, user1.address, 1)
+  //   ).to.be.revertedWithCustomError(tokenManager, "ActionNotAuthorized");
 
-    await tokenManager
-      .connect(signer2)
-      .signSetGov(vwaveTimelock.address, vwave.address, user1.address, 1);
+  //   await expect(
+  //     vwaveTimelock.connect(wallet).signalSetGov(vwave.address, user1.address)
+  //   ).to.be.revertedWith("GmxTimelock: forbidden");
 
-    await expect(
-      vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address)
-    ).to.be.revertedWith("GmxTimelock: action not signalled");
+  //   await tokenManager
+  //     .connect(signer2)
+  //     .signSetGov(vwaveTimelock.address, vwave.address, user1.address, 1);
 
-    await tokenManager
-      .connect(wallet)
-      .setGov(vwaveTimelock.address, vwave.address, user1.address, 1);
+  //   await expect(
+  //     vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address)
+  //   ).to.be.revertedWith("GmxTimelock: action not signalled");
 
-    await expect(
-      vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address)
-    ).to.be.revertedWith("GmxTimelock: action time not yet passed");
+  //   await tokenManager
+  //     .connect(wallet)
+  //     .setGov(vwaveTimelock.address, vwave.address, user1.address, 1);
 
-    await time.increase(6 * 24 * 60 * 60 + 10);
-    await mine(1);
+  //   await expect(
+  //     vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address)
+  //   ).to.be.revertedWith("GmxTimelock: action time not yet passed");
 
-    await expect(
-      vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address)
-    ).to.be.revertedWith("GmxTimelock: action time not yet passed");
+  //   await time.increase(6 * 24 * 60 * 60 + 10);
+  //   await mine(1);
 
-    await time.increase(1 * 24 * 60 * 60 + 10);
-    await mine(1);
+  //   await expect(
+  //     vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address)
+  //   ).to.be.revertedWith("GmxTimelock: action time not yet passed");
 
-    expect(await vwave.gov()).eq(vwaveTimelock.address);
-    await vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address);
-    expect(await vwave.gov()).eq(user1.address);
-  });
+  //   await time.increase(1 * 24 * 60 * 60 + 10);
+  //   await mine(1);
+
+  //   expect(await vwave.gov()).eq(vwaveTimelock.address);
+  //   await vwaveTimelock.connect(wallet).setGov(vwave.address, user1.address);
+  //   expect(await vwave.gov()).eq(user1.address);
+  // });
 });

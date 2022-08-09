@@ -260,7 +260,7 @@ describe("OrderBook, increase position orders", function () {
         executionFee: lowExecutionFee,
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: insufficient execution fee");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientFee");
 
     const goodExecutionFee: any = expandDecimals(1, 8);
     await expect(
@@ -269,14 +269,14 @@ describe("OrderBook, increase position orders", function () {
         value: goodExecutionFee - 1,
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: incorrect execution fee transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
     await expect(
       defaultCreateIncreaseOrder({
         executionFee: goodExecutionFee,
         value: goodExecutionFee + 1,
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: incorrect execution fee transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     await expect(
       defaultCreateIncreaseOrder({
@@ -286,7 +286,7 @@ describe("OrderBook, increase position orders", function () {
         shouldWrap: true,
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: incorrect value transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     await expect(
       defaultCreateIncreaseOrder({
@@ -296,7 +296,7 @@ describe("OrderBook, increase position orders", function () {
         shouldWrap: true,
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: only weth could be wrapped");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
 
     await expect(
       defaultCreateIncreaseOrder({
@@ -307,7 +307,7 @@ describe("OrderBook, increase position orders", function () {
         shouldWrap: false,
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: incorrect execution fee transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     await expect(
       defaultCreateIncreaseOrder({
@@ -315,7 +315,7 @@ describe("OrderBook, increase position orders", function () {
         amountIn: expandDecimals(4, 18),
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: insufficient collateral");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientCollateral");
 
     await expect(
       defaultCreateIncreaseOrder({
@@ -323,7 +323,7 @@ describe("OrderBook, increase position orders", function () {
         amountIn: expandDecimals(4, 18),
       }),
       (counter++).toString()
-    ).to.be.revertedWith("OrderBook: invalid _path.length");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
   });
 
   it("createIncreaseOrder, two orders", async () => {
@@ -553,7 +553,7 @@ describe("OrderBook, increase position orders", function () {
           newTriggerPrice,
           newTriggerAboveThreshold
         )
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     const tx = await orderBook
       .connect(user0)
@@ -582,7 +582,7 @@ describe("OrderBook, increase position orders", function () {
 
     await expect(
       orderBook.connect(user1).cancelIncreaseOrder(0)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     const tx2 = await orderBook.connect(user0).cancelIncreaseOrder(0);
     reportGasUsed(tx2, "cancelIncreaseOrder gas used");
@@ -617,7 +617,7 @@ describe("OrderBook, increase position orders", function () {
 
     await expect(
       orderBook.connect(user1).cancelIncreaseOrder(0)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     const tx2 = await orderBook.connect(user0).cancelIncreaseOrder(0);
     reportGasUsed(tx2, "cancelIncreaseOrder gas used");
@@ -633,7 +633,7 @@ describe("OrderBook, increase position orders", function () {
   it("executeOrder, non-existent order", async () => {
     await expect(
       orderBook.executeIncreaseOrder(user3.address, 0, user1.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
   });
 
   it("executeOrder, current price is invalid", async () => {
@@ -706,7 +706,7 @@ describe("OrderBook, increase position orders", function () {
       );
       await expect(
         orderBook.executeIncreaseOrder(order.account, orderIndex, user1.address)
-      ).to.be.revertedWith("OrderBook: invalid price for execution");
+      ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
       if (setPriceTwice) {
         // in this case on first price order is still non-executable because of current price
@@ -717,7 +717,7 @@ describe("OrderBook, increase position orders", function () {
             orderIndex,
             user1.address
           )
-        ).to.be.revertedWith("OrderBook: invalid price for execution");
+        ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
       }
 
       // now both min and max prices satisfies requirement
@@ -964,6 +964,6 @@ describe("OrderBook, increase position orders", function () {
       defaultCreateIncreaseOrder({
         path: [btc.address, btc.address],
       })
-    ).to.be.revertedWith("OrderBook: invalid _path");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
   });
 });

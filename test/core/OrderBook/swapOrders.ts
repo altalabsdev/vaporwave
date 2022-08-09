@@ -262,7 +262,7 @@ describe("OrderBook, swap orders", function () {
         triggerRatio: 1,
       }),
       "1"
-    ).to.be.revertedWith("OrderBook: invalid _path.length");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
 
     await expect(
       defaultCreateSwapOrder({
@@ -270,7 +270,7 @@ describe("OrderBook, swap orders", function () {
         triggerRatio: 1,
       }),
       "2"
-    ).to.be.revertedWith("OrderBook: invalid _path.length");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
 
     await expect(
       defaultCreateSwapOrder({
@@ -278,7 +278,7 @@ describe("OrderBook, swap orders", function () {
         triggerRatio: 1,
         shouldWrap: true,
       })
-    ).to.be.revertedWith("OrderBook: only weth could be wrapped");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
 
     await expect(
       defaultCreateSwapOrder({
@@ -286,7 +286,7 @@ describe("OrderBook, swap orders", function () {
         triggerRatio: 1,
       }),
       "3"
-    ).to.be.revertedWith("OrderBook: invalid _path");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPath");
 
     await expect(
       defaultCreateSwapOrder({
@@ -295,7 +295,7 @@ describe("OrderBook, swap orders", function () {
         executionFee: 100,
       }),
       "4"
-    ).to.be.revertedWith("OrderBook: insufficient execution fee");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientFee");
 
     await expect(
       defaultCreateSwapOrder({
@@ -304,7 +304,7 @@ describe("OrderBook, swap orders", function () {
         value: 100,
       }),
       "5"
-    ).to.be.revertedWith("OrderBook: incorrect execution fee transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
   });
 
   it("createSwapOrder, DAI -> BTC", async () => {
@@ -350,7 +350,7 @@ describe("OrderBook, swap orders", function () {
         amountIn,
         value: defaults.executionFee.sub(1),
       })
-    ).to.be.revertedWith("OrderBook: incorrect execution fee transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     await expect(
       defaultCreateSwapOrder({
@@ -360,7 +360,7 @@ describe("OrderBook, swap orders", function () {
         amountIn,
         value: defaults.executionFee.add(1),
       })
-    ).to.be.revertedWith("OrderBook: incorrect execution fee transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     let tx, props;
     [tx, props] = await defaultCreateSwapOrder({
@@ -401,7 +401,7 @@ describe("OrderBook, swap orders", function () {
         shouldWrap: true,
         value: value.sub(1),
       })
-    ).to.be.revertedWith("OrderBook: incorrect value transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     await expect(
       defaultCreateSwapOrder({
@@ -412,7 +412,7 @@ describe("OrderBook, swap orders", function () {
         shouldWrap: true,
         value: value.add(1),
       })
-    ).to.be.revertedWith("OrderBook: incorrect value transferred");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidValue");
 
     let tx, props;
     [tx, props] = await defaultCreateSwapOrder({
@@ -574,7 +574,7 @@ describe("OrderBook, swap orders", function () {
           newTriggerRatio,
           newTriggerAboveThreshold
         )
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     await expect(
       orderBook
@@ -585,7 +585,7 @@ describe("OrderBook, swap orders", function () {
           newTriggerRatio,
           newTriggerAboveThreshold
         )
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     const tx = await orderBook
       .connect(defaults.user)
@@ -626,13 +626,13 @@ describe("OrderBook, swap orders", function () {
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, user1.address),
       "non-existent order"
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     bnbPriceFeed.setLatestAnswer(toChainlinkPrice(BNB_PRICE - 30));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, user1.address),
       "insufficient amountOut"
-    ).to.be.revertedWith("OrderBook: insufficient amountOut");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientAmountOut");
 
     bnbPriceFeed.setLatestAnswer(toChainlinkPrice(BNB_PRICE - 70));
 
@@ -737,12 +737,12 @@ describe("OrderBook, swap orders", function () {
 
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, executor.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(60500));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(62500));
 
@@ -800,12 +800,12 @@ describe("OrderBook, swap orders", function () {
 
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, executor.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(60500));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(62500));
 
@@ -862,17 +862,17 @@ describe("OrderBook, swap orders", function () {
 
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, executor.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(60500));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(70000));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: insufficient amountOut");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientAmountOut");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(62500));
 
@@ -929,17 +929,17 @@ describe("OrderBook, swap orders", function () {
 
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, executor.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(60500));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(70000));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: insufficient amountOut");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientAmountOut");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(62500));
 
@@ -996,17 +996,17 @@ describe("OrderBook, swap orders", function () {
 
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, executor.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(60500));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(70000));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: insufficient amountOut");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientAmountOut");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(62500));
 
@@ -1063,17 +1063,17 @@ describe("OrderBook, swap orders", function () {
 
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 2, executor.address)
-    ).to.be.revertedWith("OrderBook: non-existent order");
+    ).to.be.revertedWithCustomError(orderBook, "NonexistentOrder");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(63000));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(50000));
     await expect(
       orderBook.executeSwapOrder(defaults.user.address, 0, executor.address)
-    ).to.be.revertedWith("OrderBook: insufficient amountOut");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientAmountOut");
 
     btcPriceFeed.setLatestAnswer(toChainlinkPrice(61000));
 
@@ -1152,7 +1152,7 @@ describe("OrderBook, swap orders", function () {
         user1.address
       ),
       "order1 revert"
-    ).to.be.revertedWith("OrderBook: invalid price for execution");
+    ).to.be.revertedWithCustomError(orderBook, "InvalidPrice");
 
     // update order 1
     const newTriggerRatio1 = toUsd(BTC_PRICE + 1000)
@@ -1195,7 +1195,7 @@ describe("OrderBook, swap orders", function () {
         user1.address
       ),
       "order2 revert"
-    ).to.be.revertedWith("OrderBook: insufficient amountOut");
+    ).to.be.revertedWithCustomError(orderBook, "InsufficientAmountOut");
 
     // execute order 2
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(BNB_PRICE + 100)); // BTC price decreased relative to BNB
