@@ -46,7 +46,8 @@ contract VaultUtils is IVaultUtils, Ownable {
         address, /* _indexToken */
         uint256, /* _sizeDelta */
         bool /* _isLong */
-    ) external view override {
+    ) external view override // solhint-disable-next-line no-empty-blocks
+    {
         // no additional validations
     }
 
@@ -59,7 +60,8 @@ contract VaultUtils is IVaultUtils, Ownable {
         uint256, /* _sizeDelta */
         bool, /* _isLong */
         address /* _receiver */
-    ) external view override {
+    ) external view override // solhint-disable-next-line no-empty-blocks
+    {
         // no additional validations
     }
 

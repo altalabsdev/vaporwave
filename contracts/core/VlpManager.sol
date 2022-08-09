@@ -30,6 +30,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
 
     uint8 public constant USDV_DECIMALS = 18;
     uint32 public constant MAX_COOLDOWN_DURATION = 48 hours; // 172800 seconds
+    /// Helper to avoid truncation errors in price calculations
     uint128 public constant PRICE_PRECISION = 1e30;
 
     /// The vault address
@@ -323,7 +324,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         }
 
         IMintable(vlp).mint(_account, mintAmount);
-
+        // solhint-disable-next-line not-rely-on-time
         lastAddedAt[_account] = block.timestamp;
 
         emit AddLiquidity(
@@ -349,6 +350,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         if (_vlpAmount == 0) {
             revert InvalidAmount();
         }
+        // solhint-disable-next-line not-rely-on-time
         if (lastAddedAt[_account] + cooldownDuration <= block.timestamp) {
             revert Cooldown();
         }
