@@ -382,7 +382,7 @@ contract PositionManager is BasePositionManager {
         address _feeReceiver
     ) external nonReentrant onlyLiquidator {
         address _vault = vault;
-        address timelock = IVault(_vault).gov();
+        address timelock = IVault(_vault).owner();
 
         ITimelock(timelock).enableLeverage(_vault);
         IVault(_vault).liquidatePosition(
@@ -423,7 +423,7 @@ contract PositionManager is BasePositionManager {
         uint256 sizeDelta = _validateIncreaseOrder(_account, _orderIndex);
 
         address _vault = vault;
-        address timelock = IVault(_vault).gov();
+        address timelock = IVault(_vault).owner();
 
         ITimelock(timelock).enableLeverage(_vault);
         IOrderBook(orderBook).executeIncreaseOrder(
@@ -446,7 +446,7 @@ contract PositionManager is BasePositionManager {
         address payable _feeReceiver
     ) external onlyOrderKeeper {
         address _vault = vault;
-        address timelock = IVault(_vault).gov();
+        address timelock = IVault(_vault).owner();
 
         (
             ,
