@@ -1,72 +1,6 @@
 import { toUsd } from "../../shared/units";
 import { deployContract } from "../../shared/fixtures";
 
-export const errors = [
-  "Vault: zero error",
-  "Vault: already initialized",
-  "Vault: invalid _maxLeverage",
-  "Vault: invalid _taxBasisPoints",
-  "Vault: invalid _stableTaxBasisPoints",
-  "Vault: invalid _mintBurnFeeBasisPoints",
-  "Vault: invalid _swapFeeBasisPoints",
-  "Vault: invalid _stableSwapFeeBasisPoints",
-  "Vault: invalid _marginFeeBasisPoints",
-  "Vault: invalid _liquidationFeeUsd",
-  "Vault: invalid _fundingInterval",
-  "Vault: invalid _fundingRateFactor",
-  "Vault: invalid _stableFundingRateFactor",
-  "Vault: token not whitelisted",
-  "Vault: _token not whitelisted",
-  "Vault: invalid tokenAmount",
-  "Vault: _token not whitelisted",
-  "Vault: invalid tokenAmount",
-  "Vault: invalid usdvAmount",
-  "Vault: _token not whitelisted",
-  "Vault: invalid usdvAmount",
-  "Vault: invalid redemptionAmount",
-  "Vault: invalid amountOut",
-  "Vault: swaps not enabled",
-  "Vault: _tokenIn not whitelisted",
-  "Vault: _tokenOut not whitelisted",
-  "Vault: invalid tokens",
-  "Vault: invalid amountIn",
-  "Vault: leverage not enabled",
-  "Vault: insufficient collateral for fees",
-  "Vault: invalid position.size",
-  "Vault: empty position",
-  "Vault: position size exceeded",
-  "Vault: position collateral exceeded",
-  "Vault: invalid liquidator",
-  "Vault: empty position",
-  "Vault: position cannot be liquidated",
-  "Vault: invalid position",
-  "Vault: invalid _averagePrice",
-  "Vault: collateral should be withdrawn",
-  "Vault: _size must be more than _collateral",
-  "Vault: invalid msg.sender",
-  "Vault: mismatched tokens",
-  "Vault: _collateralToken not whitelisted",
-  "Vault: _collateralToken must not be a stableToken",
-  "Vault: _collateralToken not whitelisted",
-  "Vault: _collateralToken must be a stableToken",
-  "Vault: _indexToken must not be a stableToken",
-  "Vault: _indexToken not shortable",
-  "Vault: invalid increase",
-  "Vault: reserve exceeds pool",
-  "Vault: max USDV exceeded",
-  "Vault: reserve exceeds pool",
-  "Vault: forbidden",
-  "Vault: forbidden",
-  "Vault: maxGasPrice exceeded",
-];
-
-export async function initVaultErrors(vault: any) {
-  const vaultErrorController = await deployContract("VaultErrorController", []);
-  await vault.setErrorController(vaultErrorController.address);
-  await vaultErrorController.setErrors(vault.address, errors);
-  return vaultErrorController;
-}
-
 export async function initVaultUtils(vault: any) {
   const vaultUtils = await deployContract("VaultUtils", [vault.address]);
   await vault.setVaultUtils(vaultUtils.address);
@@ -89,9 +23,8 @@ export async function initVault(
   );
 
   const vaultUtils = await initVaultUtils(vault);
-  const vaultErrorController = await initVaultErrors(vault);
 
-  return { vault, vaultUtils, vaultErrorController };
+  return { vault, vaultUtils };
 }
 
 export async function validateVaultBalance(
