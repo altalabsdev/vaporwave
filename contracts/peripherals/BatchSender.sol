@@ -2,14 +2,10 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-
-import "../access/Governable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title Vaporwave Batch Sender
-contract BatchSender is Governable {
-    using SafeMath for uint256;
-
+contract BatchSender is Ownable {
     mapping(address => bool) public isHandler;
 
     event BatchSend(
@@ -31,7 +27,7 @@ contract BatchSender is Governable {
     /// @notice Set Handler
     /// @param _handler The address of the handler
     /// @param _isActive Whether to add or remove the account as a handler
-    function setHandler(address _handler, bool _isActive) external onlyGov {
+    function setHandler(address _handler, bool _isActive) external onlyOwner {
         isHandler[_handler] = _isActive;
     }
 

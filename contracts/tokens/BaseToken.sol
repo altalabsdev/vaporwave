@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IYieldTracker.sol";
 import "./interfaces/IBaseToken.sol";
 
-contract BaseToken is IERC20, IBaseToken {
-    using SafeMath for uint256;
+/// Sender is not a valid handler
+error InvalidHandler();
+/// Allowance is less than the attempted transfer amount
+error InsufficientAllowance();
+/// Attempting to move more tokens than account's balace
+error InsufficientBalance();
+/// Token cannot interact with the zero address
+error ZeroAddress();
+
+contract BaseToken is IERC20, IBaseToken, Ownable {
     using SafeERC20 for IERC20;
 
     string public name;
@@ -18,8 +26,6 @@ contract BaseToken is IERC20, IBaseToken {
 
     uint256 public override totalSupply;
     uint256 public nonStakingSupply;
-
-    address public gov;
 
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowances;
@@ -30,11 +36,6 @@ contract BaseToken is IERC20, IBaseToken {
 
     bool public inPrivateTransferMode;
     mapping(address => bool) public isHandler;
-
-    modifier onlyGov() {
-        require(msg.sender == gov, "BaseToken: forbidden");
-        _;
-    }
 
     modifier onlyAdmin() {
         require(admins[msg.sender], "BaseToken: forbidden");
@@ -48,17 +49,12 @@ contract BaseToken is IERC20, IBaseToken {
     ) {
         name = _name;
         symbol = _symbol;
-        gov = msg.sender;
         _mint(msg.sender, _initialSupply);
-    }
-
-    function setGov(address _gov) external onlyGov {
-        gov = _gov;
     }
 
     function setInfo(string memory _name, string memory _symbol)
         external
-        onlyGov
+        onlyOwner
     {
         name = _name;
         symbol = _symbol;
@@ -66,37 +62,41 @@ contract BaseToken is IERC20, IBaseToken {
 
     function setYieldTrackers(address[] memory _yieldTrackers)
         external
-        onlyGov
+        onlyOwner
     {
         yieldTrackers = _yieldTrackers;
     }
 
-    function addAdmin(address _account) external onlyGov {
+    function addAdmin(address _account) external onlyOwner {
         admins[_account] = true;
     }
 
-    function removeAdmin(address _account) external override onlyGov {
+    function removeAdmin(address _account) external override onlyOwner {
         admins[_account] = false;
     }
 
-    // to help users who accidentally send their tokens to this contract
+    /// @notice Withdraw tokens to `_account`
+    /// @dev to help users who accidentally send their tokens to this contract
+    /// @param _token The address of the token to withdraw
+    /// @param _account The address of the account to receive the tokens
+    /// @param _amount The amount of tokens to withdraw
     function withdrawToken(
         address _token,
         address _account,
         uint256 _amount
-    ) external override onlyGov {
+    ) external override onlyOwner {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
     function setInPrivateTransferMode(bool _inPrivateTransferMode)
         external
         override
-        onlyGov
+        onlyOwner
     {
         inPrivateTransferMode = _inPrivateTransferMode;
     }
 
-    function setHandler(address _handler, bool _isActive) external onlyGov {
+    function setHandler(address _handler, bool _isActive) external onlyOwner {
         isHandler[_handler] = _isActive;
     }
 
@@ -107,14 +107,14 @@ contract BaseToken is IERC20, IBaseToken {
         );
         _updateRewards(_account);
         nonStakingAccounts[_account] = true;
-        nonStakingSupply = nonStakingSupply.add(balances[_account]);
+        nonStakingSupply += balances[_account];
     }
 
     function removeNonStakingAccount(address _account) external onlyAdmin {
         require(nonStakingAccounts[_account], "BaseToken: _account not marked");
         _updateRewards(_account);
         nonStakingAccounts[_account] = false;
-        nonStakingSupply = nonStakingSupply.sub(balances[_account]);
+        nonStakingSupply -= balances[_account];
     }
 
     function recoverClaim(address _account, address _receiver)
@@ -134,8 +134,46 @@ contract BaseToken is IERC20, IBaseToken {
         }
     }
 
+    function transfer(address _recipient, uint256 _amount)
+        external
+        override
+        returns (bool)
+    {
+        _transfer(msg.sender, _recipient, _amount);
+        return true;
+    }
+
+    function transferFrom(
+        address _sender,
+        address _recipient,
+        uint256 _amount
+    ) external override returns (bool) {
+        if (isHandler[msg.sender]) {
+            _transfer(_sender, _recipient, _amount);
+            return true;
+        }
+        if (allowances[_sender][msg.sender] < _amount) {
+            revert InsufficientAllowance();
+        }
+        unchecked {
+            uint256 nextAllowance = allowances[_sender][msg.sender] - _amount;
+            _approve(_sender, msg.sender, nextAllowance);
+        }
+        _transfer(_sender, _recipient, _amount);
+        return true;
+    }
+
+    function approve(address _spender, uint256 _amount)
+        external
+        override
+        returns (bool)
+    {
+        _approve(msg.sender, _spender, _amount);
+        return true;
+    }
+
     function totalStaked() external view override returns (uint256) {
-        return totalSupply.sub(nonStakingSupply);
+        return totalSupply - nonStakingSupply;
     }
 
     function balanceOf(address _account)
@@ -159,15 +197,6 @@ contract BaseToken is IERC20, IBaseToken {
         return balances[_account];
     }
 
-    function transfer(address _recipient, uint256 _amount)
-        external
-        override
-        returns (bool)
-    {
-        _transfer(msg.sender, _recipient, _amount);
-        return true;
-    }
-
     function allowance(address _owner, address _spender)
         external
         view
@@ -177,64 +206,42 @@ contract BaseToken is IERC20, IBaseToken {
         return allowances[_owner][_spender];
     }
 
-    function approve(address _spender, uint256 _amount)
-        external
-        override
-        returns (bool)
-    {
-        _approve(msg.sender, _spender, _amount);
-        return true;
-    }
-
-    function transferFrom(
-        address _sender,
-        address _recipient,
-        uint256 _amount
-    ) external override returns (bool) {
-        if (isHandler[msg.sender]) {
-            _transfer(_sender, _recipient, _amount);
-            return true;
-        }
-        uint256 nextAllowance = allowances[_sender][msg.sender].sub(
-            _amount,
-            "BaseToken: transfer amount exceeds allowance"
-        );
-        _approve(_sender, msg.sender, nextAllowance);
-        _transfer(_sender, _recipient, _amount);
-        return true;
-    }
-
     function _mint(address _account, uint256 _amount) internal {
-        require(_account != address(0), "BaseToken: mint to the zero address");
+        if (_account == address(0)) {
+            revert ZeroAddress();
+        }
 
         _updateRewards(_account);
 
-        totalSupply = totalSupply.add(_amount);
-        balances[_account] = balances[_account].add(_amount);
+        totalSupply += _amount;
+        balances[_account] += _amount;
 
         if (nonStakingAccounts[_account]) {
-            nonStakingSupply = nonStakingSupply.add(_amount);
+            nonStakingSupply += _amount;
         }
 
         emit Transfer(address(0), _account, _amount);
     }
 
     function _burn(address _account, uint256 _amount) internal {
-        require(
-            _account != address(0),
-            "BaseToken: burn from the zero address"
-        );
+        if (_account == address(0)) {
+            revert ZeroAddress();
+        }
 
         _updateRewards(_account);
 
-        balances[_account] = balances[_account].sub(
-            _amount,
-            "BaseToken: burn amount exceeds balance"
-        );
-        totalSupply = totalSupply.sub(_amount);
+        if (balances[_account] < _amount) {
+            revert InsufficientBalance();
+        }
+
+        unchecked {
+            balances[_account] -= _amount;
+        }
+
+        totalSupply -= _amount;
 
         if (nonStakingAccounts[_account]) {
-            nonStakingSupply = nonStakingSupply.sub(_amount);
+            nonStakingSupply -= _amount;
         }
 
         emit Transfer(_account, address(0), _amount);
@@ -245,36 +252,32 @@ contract BaseToken is IERC20, IBaseToken {
         address _recipient,
         uint256 _amount
     ) private {
-        require(
-            _sender != address(0),
-            "BaseToken: transfer from the zero address"
-        );
-        require(
-            _recipient != address(0),
-            "BaseToken: transfer to the zero address"
-        );
+        if (_sender == address(0) || _recipient == address(0)) {
+            revert ZeroAddress();
+        }
 
         if (inPrivateTransferMode) {
-            require(
-                isHandler[msg.sender],
-                "BaseToken: msg.sender not whitelisted"
-            );
+            _validateHandler();
         }
 
         _updateRewards(_sender);
         _updateRewards(_recipient);
 
-        balances[_sender] = balances[_sender].sub(
-            _amount,
-            "BaseToken: transfer amount exceeds balance"
-        );
-        balances[_recipient] = balances[_recipient].add(_amount);
+        if (balances[_sender] < _amount) {
+            revert InsufficientBalance();
+        }
+
+        unchecked {
+            balances[_sender] -= _amount;
+        }
+
+        balances[_recipient] += _amount;
 
         if (nonStakingAccounts[_sender]) {
-            nonStakingSupply = nonStakingSupply.sub(_amount);
+            nonStakingSupply -= _amount;
         }
         if (nonStakingAccounts[_recipient]) {
-            nonStakingSupply = nonStakingSupply.add(_amount);
+            nonStakingSupply += _amount;
         }
 
         emit Transfer(_sender, _recipient, _amount);
@@ -285,18 +288,19 @@ contract BaseToken is IERC20, IBaseToken {
         address _spender,
         uint256 _amount
     ) private {
-        require(
-            _owner != address(0),
-            "BaseToken: approve from the zero address"
-        );
-        require(
-            _spender != address(0),
-            "BaseToken: approve to the zero address"
-        );
+        if (_owner == address(0) || _spender == address(0)) {
+            revert ZeroAddress();
+        }
 
         allowances[_owner][_spender] = _amount;
 
         emit Approval(_owner, _spender, _amount);
+    }
+
+    function _validateHandler() private view {
+        if (!isHandler[msg.sender]) {
+            revert InvalidHandler();
+        }
     }
 
     function _updateRewards(address _account) private {

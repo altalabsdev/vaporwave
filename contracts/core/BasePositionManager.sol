@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../tokens/interfaces/IWETH.sol";
 import "./interfaces/IRouter.sol";
@@ -12,12 +12,11 @@ import "./interfaces/IVault.sol";
 import "./interfaces/IOrderBook.sol";
 import "./interfaces/IBasePositionManager.sol";
 
-import "../access/Governable.sol";
 import "../peripherals/interfaces/ITimelock.sol";
 import "../referrals/interfaces/IReferralStorage.sol";
 
 /// Function can only be called by an admin
-error AdminRestricted();
+error OnlyAdmin();
 /// Sender was not `weth`
 error InvalidSender();
 /// Price is less than the current limit for a long position
@@ -34,21 +33,20 @@ error InvalidPathLength();
 error InsufficientAmountOut();
 
 /// @title Vaporwave Base Position Manager
-contract BasePositionManager is
-    IBasePositionManager,
-    ReentrancyGuard,
-    Governable
-{
-    using SafeMath for uint256;
+contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
-    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
+    /// Helper used to avoid truncation errors in basis points calculations
+    uint16 public constant BASIS_POINTS_DIVISOR = 10000;
 
+    /// The admin address
     address public admin;
-
+    /// The vault address
     address public vault;
+    /// The router address
     address public router;
+    /// Wrapped Ether (WETH) token address
     address public weth;
 
     // to prevent using the deposit and withdrawal of collateral as a zero fee swap,
@@ -58,19 +56,38 @@ contract BasePositionManager is
     uint256 public depositFee;
     uint256 public increasePositionBufferBps = 100;
 
+    /// The referral storage address
     address public referralStorage;
 
+    /// Mapping of token fee reserves
     mapping(address => uint256) public feeReserves;
-
+    /// Mapping of token max global long sizes
     mapping(address => uint256) public override maxGlobalLongSizes;
+    /// Mapping of token max global short sizes
     mapping(address => uint256) public override maxGlobalShortSizes;
 
+    /// @notice Emitted when the deposit fee is set
+    /// @param depositFee The new deposit fee
     event SetDepositFee(uint256 depositFee);
+    /// @notice Emitted when the increase position buffer basis points are set
+    /// @param increasePositionBufferBps The new increase position buffer basis points
     event SetIncreasePositionBufferBps(uint256 increasePositionBufferBps);
+    /// @notice Emitted when the referral storage address is set
+    /// @param referralStorage The new referral storage address
     event SetReferralStorage(address referralStorage);
+    /// @notice Emitted when the admin address is set
+    /// @param admin The new admin address
     event SetAdmin(address admin);
+    /// @notice Emitted when fees are withdrawn
+    /// @param token The token withdrawn
+    /// @param receiver The receiver of the funds
+    /// @param amount The amount withdrawn
     event WithdrawFees(address token, address receiver, uint256 amount);
 
+    /// @notice Emitted when the max global long and short sizes are set
+    /// @param tokens The array of tokens
+    /// @param longSizes The array of max long sizes
+    /// @param shortSizes The array of max short sizes
     event SetMaxGlobalSizes(
         address[] tokens,
         uint256[] longSizes,
@@ -95,7 +112,7 @@ contract BasePositionManager is
 
     modifier onlyAdmin() {
         if (msg.sender != admin) {
-            revert AdminRestricted();
+            revert OnlyAdmin();
         }
         _;
     }
@@ -122,7 +139,7 @@ contract BasePositionManager is
 
     /// @notice Set the admin address
     /// @param _admin The new admin address
-    function setAdmin(address _admin) external onlyGov {
+    function setAdmin(address _admin) external onlyOwner {
         admin = _admin;
         emit SetAdmin(_admin);
     }
@@ -134,8 +151,8 @@ contract BasePositionManager is
         emit SetDepositFee(_depositFee);
     }
 
-    /// @notice Set the increase position buffer bps
-    /// @param _increasePositionBufferBps The new increase position buffer bps
+    /// @notice Set the increase position buffer basis points
+    /// @param _increasePositionBufferBps The new increase position buffer basis points
     function setIncreasePositionBufferBps(uint256 _increasePositionBufferBps)
         external
         onlyAdmin
@@ -195,7 +212,7 @@ contract BasePositionManager is
         address _token,
         address _spender,
         uint256 _amount
-    ) external onlyGov {
+    ) external onlyOwner {
         IERC20(_token).approve(_spender, _amount);
     }
 
@@ -204,7 +221,7 @@ contract BasePositionManager is
     /// @param _amount The amount of ETH to transfer
     function sendValue(address payable _receiver, uint256 _amount)
         external
-        onlyGov
+        onlyOwner
     {
         _receiver.sendValue(_amount);
     }
@@ -242,14 +259,14 @@ contract BasePositionManager is
             uint256 maxGlobalShortSize = maxGlobalShortSizes[_indexToken];
             if (
                 maxGlobalShortSize > 0 &&
-                IVault(_vault).globalShortSizes(_indexToken).add(_sizeDelta) >
+                IVault(_vault).globalShortSizes(_indexToken) + _sizeDelta >
                 maxGlobalShortSize
             ) {
                 revert MaxShortsExceeded();
             }
         }
 
-        address timelock = IVault(_vault).gov();
+        address timelock = IVault(_vault).owner();
 
         ITimelock(timelock).enableLeverage(_vault);
         IRouter(router).pluginIncreasePosition(
@@ -286,7 +303,7 @@ contract BasePositionManager is
             }
         }
 
-        address timelock = IVault(_vault).gov();
+        address timelock = IVault(_vault).owner();
 
         ITimelock(timelock).enableLeverage(_vault);
         uint256 amountOut = IRouter(router).pluginDecreasePosition(
@@ -417,7 +434,7 @@ contract BasePositionManager is
                 (BASIS_POINTS_DIVISOR - depositFee)) / BASIS_POINTS_DIVISOR;
             uint256 feeAmount = _amountIn - afterFeeAmount;
             address feeToken = _path[_path.length - 1];
-            feeReserves[feeToken] = feeReserves[feeToken].add(feeAmount);
+            feeReserves[feeToken] = feeReserves[feeToken] + feeAmount;
             return afterFeeAmount;
         }
 

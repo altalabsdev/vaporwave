@@ -3,15 +3,13 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../tokens/interfaces/IWETH.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IRouter.sol";
 
-/// Contract does not have governor permissions
-error GovernorRestricted();
 /// Sender must be `weth`
 error InvalidSender();
 /// Invalid token swap path
@@ -27,14 +25,10 @@ error UnapprovedPlugin();
 /// Amount out is less than the minimum out
 error InsufficientAmountOut();
 
-// TODO import Ownable
 /// @title Vaporwave Router
-contract Router is IRouter {
-    using SafeMath for uint256;
+contract Router is Ownable, IRouter {
     using SafeERC20 for IERC20;
     using Address for address payable;
-
-    address public gov;
 
     /// Wrapped Ether (WETH) token
     address public weth; // wrapped ETH
@@ -56,13 +50,6 @@ contract Router is IRouter {
         uint256 amountOut
     );
 
-    modifier onlyGov() {
-        if (msg.sender != gov) {
-            revert GovernorRestricted();
-        }
-        _;
-    }
-
     constructor(
         address _vault,
         address _usdv,
@@ -71,8 +58,6 @@ contract Router is IRouter {
         vault = _vault;
         usdv = _usdv;
         weth = _weth;
-
-        gov = msg.sender;
     }
 
     receive() external payable {
@@ -81,21 +66,15 @@ contract Router is IRouter {
         }
     }
 
-    /// @notice Set the governor address to `_gov`
-    /// @param _gov The new governor address
-    function setGov(address _gov) external onlyGov {
-        gov = _gov;
-    }
-
     /// @notice Add `_plugin` as a plugin to the router
     /// @param _plugin The address of the plugin to add
-    function addPlugin(address _plugin) external override onlyGov {
+    function addPlugin(address _plugin) external override onlyOwner {
         plugins[_plugin] = true;
     }
 
     /// @notice Remove `_plugin` as a plugin from the router
     /// @param _plugin The address of the plugin to remove
-    function removePlugin(address _plugin) external onlyGov {
+    function removePlugin(address _plugin) external onlyOwner {
         plugins[_plugin] = false;
     }
 

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 /**
  * @dev Implementation of the {IERC20} interface.
@@ -29,8 +28,6 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
  * allowances. See {IERC20-approve}.
  */
 contract WETH is IERC20 {
-    using SafeMath for uint256;
-
     uint256 private _totalSupply;
 
     string private _name;
@@ -60,12 +57,12 @@ contract WETH is IERC20 {
     }
 
     function deposit() public payable {
-        _balances[msg.sender] = _balances[msg.sender].add(msg.value);
+        _balances[msg.sender] += msg.value;
     }
 
     function withdraw(uint256 amount) public {
         require(_balances[msg.sender] >= amount);
-        _balances[msg.sender] = _balances[msg.sender].sub(amount);
+        _balances[msg.sender] -= amount;
         payable(msg.sender).transfer(amount);
     }
 
@@ -185,10 +182,7 @@ contract WETH is IERC20 {
         _approve(
             sender,
             _msgSender(),
-            _allowances[sender][_msgSender()].sub(
-                amount,
-                "ERC20: transfer amount exceeds allowance"
-            )
+            _allowances[sender][_msgSender()] - amount
         );
         return true;
     }
@@ -213,7 +207,7 @@ contract WETH is IERC20 {
         _approve(
             _msgSender(),
             spender,
-            _allowances[_msgSender()][spender].add(addedValue)
+            _allowances[_msgSender()][spender] + addedValue
         );
         return true;
     }
@@ -240,10 +234,7 @@ contract WETH is IERC20 {
         _approve(
             _msgSender(),
             spender,
-            _allowances[_msgSender()][spender].sub(
-                subtractedValue,
-                "ERC20: decreased allowance below zero"
-            )
+            _allowances[_msgSender()][spender] - subtractedValue
         );
         return true;
     }
@@ -272,11 +263,8 @@ contract WETH is IERC20 {
 
         _beforeTokenTransfer(sender, recipient, amount);
 
-        _balances[sender] = _balances[sender].sub(
-            amount,
-            "ERC20: transfer amount exceeds balance"
-        );
-        _balances[recipient] = _balances[recipient].add(amount);
+        _balances[sender] -= amount;
+        _balances[recipient] += amount;
         emit Transfer(sender, recipient, amount);
     }
 
@@ -294,8 +282,8 @@ contract WETH is IERC20 {
 
         _beforeTokenTransfer(address(0), account, amount);
 
-        _totalSupply = _totalSupply.add(amount);
-        _balances[account] = _balances[account].add(amount);
+        _totalSupply += amount;
+        _balances[account] += amount;
         emit Transfer(address(0), account, amount);
     }
 
@@ -315,11 +303,8 @@ contract WETH is IERC20 {
 
         _beforeTokenTransfer(account, address(0), amount);
 
-        _balances[account] = _balances[account].sub(
-            amount,
-            "ERC20: burn amount exceeds balance"
-        );
-        _totalSupply = _totalSupply.sub(amount);
+        _balances[account] -= amount;
+        _totalSupply -= amount;
         emit Transfer(account, address(0), amount);
     }
 

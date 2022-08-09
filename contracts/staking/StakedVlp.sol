@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "../core/interfaces/IVlpManager.sol";
@@ -9,24 +8,40 @@ import "../core/interfaces/IVlpManager.sol";
 import "./interfaces/IRewardTracker.sol";
 import "./interfaces/IRewardTracker.sol";
 
+/// Allowance is less than the attempted transfer amount
+error InsufficientAllowance();
+/// Token cannot interact with the zero address
+error ZeroAddress();
+
+// TODO add NatSpec
 // provide a way to transfer staked VLP tokens by unstaking from the sender
 // and staking for the receiver
 // tests in RewardRouterV2.js
 /// @title Vaporwave Staked VLP token contract
 contract StakedVlp {
-    using SafeMath for uint256;
-
+    /// The name of the token is StakedVlp
     string public constant name = "StakedVlp";
+    /// The token symbol is sVLP
     string public constant symbol = "sVLP";
+    /// The decimals of the token is 18
     uint8 public constant decimals = 18;
 
+    /// The VLP token address
     address public vlp;
+    /// The VLP manager address
     IVlpManager public vlpManager;
+    /// The staked VLP tracker address
     address public stakedVlpTracker;
+    /// The fee VLP tracker address
     address public feeVlpTracker;
 
+    /// Mapping of token owners to their spender allowances
     mapping(address => mapping(address => uint256)) public allowances;
 
+    /// @notice Emitted when a token approval is made
+    /// @param owner The owner of the tokens
+    /// @param spender The address that is allowed to spend the tokens
+    /// @param value The amount of tokens approved
     event Approval(
         address indexed owner,
         address indexed spender,
@@ -45,14 +60,6 @@ contract StakedVlp {
         feeVlpTracker = _feeVlpTracker;
     }
 
-    function allowance(address _owner, address _spender)
-        external
-        view
-        returns (uint256)
-    {
-        return allowances[_owner][_spender];
-    }
-
     function approve(address _spender, uint256 _amount)
         external
         returns (bool)
@@ -61,6 +68,7 @@ contract StakedVlp {
         return true;
     }
 
+    /// @notice Transfer `_amount` tokens to `_recipient`
     function transfer(address _recipient, uint256 _amount)
         external
         returns (bool)
@@ -74,13 +82,23 @@ contract StakedVlp {
         address _recipient,
         uint256 _amount
     ) external returns (bool) {
-        uint256 nextAllowance = allowances[_sender][msg.sender].sub(
-            _amount,
-            "StakedVlp: transfer amount exceeds allowance"
-        );
-        _approve(_sender, msg.sender, nextAllowance);
+        if (allowances[_sender][msg.sender] < _amount) {
+            revert InsufficientAllowance();
+        }
+        unchecked {
+            uint256 nextAllowance = allowances[_sender][msg.sender] - _amount;
+            _approve(_sender, msg.sender, nextAllowance);
+        }
         _transfer(_sender, _recipient, _amount);
         return true;
+    }
+
+    function allowance(address _owner, address _spender)
+        external
+        view
+        returns (uint256)
+    {
+        return allowances[_owner][_spender];
     }
 
     function balanceOf(address _account) external view returns (uint256) {
@@ -96,14 +114,9 @@ contract StakedVlp {
         address _spender,
         uint256 _amount
     ) private {
-        require(
-            _owner != address(0),
-            "StakedVlp: approve from the zero address"
-        );
-        require(
-            _spender != address(0),
-            "StakedVlp: approve to the zero address"
-        );
+        if (_owner == address(0) || _spender == address(0)) {
+            revert ZeroAddress();
+        }
 
         allowances[_owner][_spender] = _amount;
 
@@ -115,19 +128,13 @@ contract StakedVlp {
         address _recipient,
         uint256 _amount
     ) private {
-        require(
-            _sender != address(0),
-            "StakedVlp: transfer from the zero address"
-        );
-        require(
-            _recipient != address(0),
-            "StakedVlp: transfer to the zero address"
-        );
+        if (_sender == address(0) || _recipient == address(0)) {
+            revert ZeroAddress();
+        }
 
         require(
-            vlpManager.lastAddedAt(_sender).add(
-                vlpManager.cooldownDuration()
-            ) <= block.timestamp,
+            vlpManager.lastAddedAt(_sender) + vlpManager.cooldownDuration() <=
+                block.timestamp,
             "StakedVlp: cooldown duration not yet passed"
         );
 

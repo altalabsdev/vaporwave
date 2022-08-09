@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 import "./interfaces/ITimelockTarget.sol";
 import "./interfaces/IVwaveTimelock.sol";
@@ -21,33 +20,56 @@ import "../staking/interfaces/IVester.sol";
 /// User does not have function priveleges
 error Forbidden();
 error InvalidBuffer();
+error InvalidMaxLeverage();
+/// The price sample space cannot be greater than 5
+error InvalidPriceSampleSpace();
+/// The max gas price cannot be less than 5 gwei
+error InvalidMaxGasPrice();
 error InvalidFundingRateFactor();
 error InvalidStableFundingRateFactor();
 error InvalidSetFeesParameter();
 error InvalidMinProfitBps();
+error PrivateTransferMode();
+error TokenNotWhitelisted();
+error MaxTokenSupplyExceeded();
+error InvalidAction();
+error TimeNotPassed();
 
 /// @title Vaporwave Timelock
 contract VwaveTimelock is IVwaveTimelock {
-    using SafeMath for uint256;
+    /// The max fee basis points is 300 (3%)
+    uint16 public constant MAX_FEE_BASIS_POINTS = 300;
+    /// The max funding rate factor is 200 (0.02%)
+    uint16 public constant MAX_FUNDING_RATE_FACTOR = 200;
+    /// The maximum leverage must be greater than 500000 (50x)
+    uint32 public constant MAX_LEVERAGE_VALIDATION = 500000;
+    /// The maximum buffer is 7 days (604800 seconds)
+    uint32 public constant MAX_BUFFER = 7 days;
+    /// The max gas price must be greater than 5 gwei
+    uint64 public constant MAX_GAS_PRICE_VALIDATION = 5e9; // TODO: adjust for Aurora
 
-    uint256 public constant PRICE_PRECISION = 10**30;
-    uint256 public constant MAX_BUFFER = 7 days;
-    uint256 public constant MAX_FEE_BASIS_POINTS = 300; // 3%
-    uint256 public constant MAX_FUNDING_RATE_FACTOR = 200; // 0.02%
-    uint256 public constant MAX_LEVERAGE_VALIDATION = 500000; // 50x
-
+    /// The buffer amount in seconds
     uint256 public buffer;
+    /// The long buffer amount in seconds
     uint256 public longBuffer;
+    /// The admin of the contract
     address public admin;
 
+    /// The token manager address
     address public tokenManager;
+    /// The reward manager address
     address public rewardManager;
+    /// The address to receive newly minted tokens
     address public mintReceiver;
+    /// The max token supply
     uint256 public maxTokenSupply;
 
+    /// Mapping of pending actions
     mapping(bytes32 => uint256) public pendingActions;
+    /// Mapping of excluded tokens
     mapping(address => bool) public excludedTokens;
 
+    /// Mapping of valid handlers
     mapping(address => bool) public isHandler;
 
     event SignalPendingAction(bytes32 action);
@@ -130,13 +152,9 @@ contract VwaveTimelock is IVwaveTimelock {
         address _mintReceiver,
         uint256 _maxTokenSupply
     ) {
-        if (_buffer > MAX_BUFFER) {
+        if (_buffer > MAX_BUFFER || _longBuffer > MAX_BUFFER) {
             revert InvalidBuffer();
         }
-        require(
-            _longBuffer <= MAX_BUFFER,
-            "VwaveTimelock: invalid _longBuffer"
-        );
         admin = _admin;
         buffer = _buffer;
         longBuffer = _longBuffer;
@@ -187,16 +205,16 @@ contract VwaveTimelock is IVwaveTimelock {
     }
 
     /// @notice Set the maximum leverage allowed
+    /// @dev The maximum leverage must be greater than `MAX_LEVERAGE_VALIDATION`
     /// @param _vault The vault address
     /// @param _maxLeverage The maximum leverage allowed
     function setMaxLeverage(address _vault, uint256 _maxLeverage)
         external
         onlyAdmin
     {
-        require(
-            _maxLeverage > MAX_LEVERAGE_VALIDATION,
-            "VwaveTimelock: invalid _maxLeverage"
-        );
+        if (_maxLeverage <= MAX_LEVERAGE_VALIDATION) {
+            revert InvalidMaxLeverage();
+        }
         IVault(_vault).setMaxLeverage(_maxLeverage);
     }
 
@@ -279,7 +297,7 @@ contract VwaveTimelock is IVwaveTimelock {
         IVault vault = IVault(_vault);
 
         if (!vault.whitelistedTokens(_token)) {
-            revert(); // TODO "VwaveTimelock: token not yet whitelisted"
+            revert TokenNotWhitelisted();
         }
 
         uint256 tokenDecimals = vault.tokenDecimals(_token);
@@ -320,9 +338,9 @@ contract VwaveTimelock is IVwaveTimelock {
         IYieldToken(_token).removeAdmin(_account);
     }
 
-    /// @notice Enable or disable `_isEnabled` the price feed from using AMM aggregate pricing
+    /// @notice Set `_priceFeed` (Price Feed) to be AMM enabled: `_isEnabled`
     /// @param _priceFeed The price feed address
-    /// @param _isEnabled Whether to enable or disable the AMM pricing for the feed
+    /// @param _isEnabled True to enable AMM, false otherwise
     function setIsAmmEnabled(address _priceFeed, bool _isEnabled)
         external
         onlyAdmin
@@ -330,9 +348,9 @@ contract VwaveTimelock is IVwaveTimelock {
         IVaultPriceFeed(_priceFeed).setIsAmmEnabled(_isEnabled);
     }
 
-    /// @notice Enable or disable `_isEnabled` the price feed from using secondary pricing
+    /// @notice Set `_priceFeed` (Price Feed) to be secondary price enabled: `_isEnabled`
     /// @param _priceFeed The price feed address
-    /// @param _isEnabled Whether to enable or disable the secondary pricing for the feed
+    /// @param _isEnabled True to enable secondary price, false otherwise
     function setIsSecondaryPriceEnabled(address _priceFeed, bool _isEnabled)
         external
         onlyAdmin
@@ -340,9 +358,9 @@ contract VwaveTimelock is IVwaveTimelock {
         IVaultPriceFeed(_priceFeed).setIsSecondaryPriceEnabled(_isEnabled);
     }
 
-    /// @notice Set the strict max price deviation for the price feed
+    /// @notice Set the max strict price deviation for `_priceFeed` (Price Feed) to `_maxStrictPriceDeviation`
     /// @param _priceFeed The price feed address
-    /// @param _maxStrictPriceDeviation The max price deviation for the feed
+    /// @param _maxStrictPriceDeviation The max strict price deviation
     function setMaxStrictPriceDeviation(
         address _priceFeed,
         uint256 _maxStrictPriceDeviation
@@ -352,9 +370,10 @@ contract VwaveTimelock is IVwaveTimelock {
         );
     }
 
-    /// @notice Enable or disable `_useV2Pricing` the price feed from using V2 pricing
+    // TODO: check if this refers to Uniswap V2
+    /// @notice Set `_priceFeed` to use (uniswap) V2 pricing: `_useV2Pricing`
     /// @param _priceFeed The price feed address
-    /// @param _useV2Pricing Whether to enable or disable the V2 pricing for the feed
+    /// @param _useV2Pricing True to enable V2 price, false otherwise
     function setUseV2Pricing(address _priceFeed, bool _useV2Pricing)
         external
         onlyAdmin
@@ -379,7 +398,7 @@ contract VwaveTimelock is IVwaveTimelock {
     function setSpreadBasisPoints(
         address _priceFeed,
         address _token,
-        uint256 _spreadBasisPoints
+        uint8 _spreadBasisPoints
     ) external onlyAdmin {
         IVaultPriceFeed(_priceFeed).setSpreadBasisPoints(
             _token,
@@ -407,7 +426,9 @@ contract VwaveTimelock is IVwaveTimelock {
         external
         onlyAdmin
     {
-        require(_priceSampleSpace <= 5, "Invalid _priceSampleSpace");
+        if (_priceSampleSpace > 5) {
+            revert InvalidPriceSampleSpace();
+        }
         IVaultPriceFeed(_priceFeed).setPriceSampleSpace(_priceSampleSpace);
     }
 
@@ -437,7 +458,9 @@ contract VwaveTimelock is IVwaveTimelock {
         external
         onlyAdmin
     {
-        require(_maxGasPrice > 5000000000, "Invalid _maxGasPrice");
+        if (_maxGasPrice <= MAX_GAS_PRICE_VALIDATION) {
+            revert InvalidMaxGasPrice();
+        }
         IVault(_vault).setMaxGasPrice(_maxGasPrice);
     }
 
@@ -468,16 +491,18 @@ contract VwaveTimelock is IVwaveTimelock {
         excludedTokens[_token] = true;
     }
 
+    /// @notice Set the inPrivateTransferMode flag to `_inPrivateTransferMode` for `_token`
+    /// @param _token The address of the token contract
+    /// @param _inPrivateTransferMode True to set the token to private transfer mode, false otherwise
     function setInPrivateTransferMode(
         address _token,
         bool _inPrivateTransferMode
     ) external onlyAdmin {
         if (excludedTokens[_token]) {
             // excludedTokens can only have their transfers enabled
-            require(
-                _inPrivateTransferMode == false,
-                "VwaveTimelock: invalid _inPrivateTransferMode"
-            );
+            if (_inPrivateTransferMode) {
+                revert PrivateTransferMode();
+            }
         }
 
         IBaseToken(_token).setInPrivateTransferMode(_inPrivateTransferMode);
@@ -827,36 +852,35 @@ contract VwaveTimelock is IVwaveTimelock {
         }
 
         mintable.mint(_receiver, _amount);
-        require(
-            IERC20(_token).totalSupply() <= maxTokenSupply,
-            "VwaveTimelock: maxTokenSupply exceeded"
-        );
+        if (IERC20(_token).totalSupply() > maxTokenSupply) {
+            revert MaxTokenSupplyExceeded();
+        }
     }
 
     function _setPendingAction(bytes32 _action) private {
-        pendingActions[_action] = block.timestamp.add(buffer);
+        pendingActions[_action] = block.timestamp + buffer;
         emit SignalPendingAction(_action);
     }
 
     function _setLongPendingAction(bytes32 _action) private {
-        pendingActions[_action] = block.timestamp.add(longBuffer);
+        pendingActions[_action] = block.timestamp + longBuffer;
         emit SignalPendingAction(_action);
     }
 
-    function _validateAction(bytes32 _action) private view {
-        require(
-            pendingActions[_action] != 0,
-            "VwaveTimelock: action not signalled"
-        );
-        require(
-            pendingActions[_action] < block.timestamp,
-            "VwaveTimelock: action time not yet passed"
-        );
-    }
-
     function _clearAction(bytes32 _action) private {
-        require(pendingActions[_action] != 0, "VwaveTimelock: invalid _action");
+        if (pendingActions[_action] == 0) {
+            revert InvalidAction();
+        }
         delete pendingActions[_action];
         emit ClearAction(_action);
+    }
+
+    function _validateAction(bytes32 _action) private view {
+        if (pendingActions[_action] == 0) {
+            revert InvalidAction();
+        }
+        if (pendingActions[_action] >= block.timestamp) {
+            revert TimeNotPassed();
+        }
     }
 }

@@ -2,7 +2,10 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+// TODO add NatSpec
+// TODO replace require strings with custom errors
 
 /**
  * @dev Implementation of the {IERC20} interface.
@@ -28,12 +31,9 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
  * functions have been added to mitigate the well-known issues around setting
  * allowances. See {IERC20-approve}.
  */
-contract FaucetToken is IERC20 {
-    using SafeMath for uint256;
-
+contract FaucetToken is IERC20, Ownable {
     uint256 public DROPLET_INTERVAL = 8 hours;
 
-    address public _gov;
     uint256 public _dropletAmount;
     bool public _isFaucetEnabled;
 
@@ -66,34 +66,29 @@ contract FaucetToken is IERC20 {
         _name = name;
         _symbol = symbol;
         _decimals = decimals;
-        _gov = msg.sender;
         _dropletAmount = dropletAmount;
     }
 
-    function mint(address account, uint256 amount) public {
-        require(msg.sender == _gov, "FaucetToken: forbidden");
+    function mint(address account, uint256 amount) public onlyOwner {
         _mint(account, amount);
     }
 
-    function enableFaucet() public {
-        require(msg.sender == _gov, "FaucetToken: forbidden");
+    function enableFaucet() public onlyOwner {
         _isFaucetEnabled = true;
     }
 
-    function disableFaucet() public {
-        require(msg.sender == _gov, "FaucetToken: forbidden");
+    function disableFaucet() public onlyOwner {
         _isFaucetEnabled = false;
     }
 
-    function setDropletAmount(uint256 dropletAmount) public {
-        require(msg.sender == _gov, "FaucetToken: forbidden");
+    function setDropletAmount(uint256 dropletAmount) public onlyOwner {
         _dropletAmount = dropletAmount;
     }
 
     function claimDroplet() public {
         require(_isFaucetEnabled, "FaucetToken: faucet not enabled");
         require(
-            _claimedAt[msg.sender].add(DROPLET_INTERVAL) <= block.timestamp,
+            _claimedAt[msg.sender] + DROPLET_INTERVAL <= block.timestamp,
             "FaucetToken: droplet not available yet"
         );
         _claimedAt[msg.sender] = block.timestamp;
@@ -167,14 +162,14 @@ contract FaucetToken is IERC20 {
     /**
      * @dev See {IERC20-allowance}.
      */
-    function allowance(address owner, address spender)
+    function allowance(address _owner, address _spender)
         public
         view
         virtual
         override
         returns (uint256)
     {
-        return _allowances[owner][spender];
+        return _allowances[_owner][_spender];
     }
 
     /**
@@ -184,13 +179,13 @@ contract FaucetToken is IERC20 {
      *
      * - `spender` cannot be the zero address.
      */
-    function approve(address spender, uint256 amount)
+    function approve(address _spender, uint256 _amount)
         public
         virtual
         override
         returns (bool)
     {
-        _approve(_msgSender(), spender, amount);
+        _approve(_msgSender(), _spender, _amount);
         return true;
     }
 
@@ -208,18 +203,15 @@ contract FaucetToken is IERC20 {
      * `amount`.
      */
     function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
+        address _sender,
+        address _recipient,
+        uint256 _amount
     ) public virtual override returns (bool) {
-        _transfer(sender, recipient, amount);
+        _transfer(_sender, _recipient, _amount);
         _approve(
-            sender,
+            _sender,
             _msgSender(),
-            _allowances[sender][_msgSender()].sub(
-                amount,
-                "ERC20: transfer amount exceeds allowance"
-            )
+            _allowances[_sender][_msgSender()] - _amount
         );
         return true;
     }
@@ -244,7 +236,7 @@ contract FaucetToken is IERC20 {
         _approve(
             _msgSender(),
             spender,
-            _allowances[_msgSender()][spender].add(addedValue)
+            _allowances[_msgSender()][spender] + addedValue
         );
         return true;
     }
@@ -271,10 +263,7 @@ contract FaucetToken is IERC20 {
         _approve(
             _msgSender(),
             spender,
-            _allowances[_msgSender()][spender].sub(
-                subtractedValue,
-                "ERC20: decreased allowance below zero"
-            )
+            _allowances[_msgSender()][spender] - subtractedValue
         );
         return true;
     }
@@ -303,11 +292,8 @@ contract FaucetToken is IERC20 {
 
         _beforeTokenTransfer(sender, recipient, amount);
 
-        _balances[sender] = _balances[sender].sub(
-            amount,
-            "ERC20: transfer amount exceeds balance"
-        );
-        _balances[recipient] = _balances[recipient].add(amount);
+        _balances[sender] -= amount;
+        _balances[recipient] += amount;
         emit Transfer(sender, recipient, amount);
     }
 
@@ -325,8 +311,8 @@ contract FaucetToken is IERC20 {
 
         _beforeTokenTransfer(address(0), account, amount);
 
-        _totalSupply = _totalSupply.add(amount);
-        _balances[account] = _balances[account].add(amount);
+        _totalSupply += amount;
+        _balances[account] += amount;
         emit Transfer(address(0), account, amount);
     }
 
@@ -346,11 +332,8 @@ contract FaucetToken is IERC20 {
 
         _beforeTokenTransfer(account, address(0), amount);
 
-        _balances[account] = _balances[account].sub(
-            amount,
-            "ERC20: burn amount exceeds balance"
-        );
-        _totalSupply = _totalSupply.sub(amount);
+        _balances[account] -= amount;
+        _totalSupply -= amount;
         emit Transfer(account, address(0), amount);
     }
 
@@ -368,15 +351,15 @@ contract FaucetToken is IERC20 {
      * - `spender` cannot be the zero address.
      */
     function _approve(
-        address owner,
-        address spender,
-        uint256 amount
+        address _owner,
+        address _spender,
+        uint256 _amount
     ) internal virtual {
-        require(owner != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
+        require(_owner != address(0), "ERC20: approve from the zero address");
+        require(_spender != address(0), "ERC20: approve to the zero address");
 
-        _allowances[owner][spender] = amount;
-        emit Approval(owner, spender, amount);
+        _allowances[_owner][_spender] = _amount;
+        emit Approval(_owner, _spender, _amount);
     }
 
     /**
@@ -409,8 +392,4 @@ contract FaucetToken is IERC20 {
         address to,
         uint256 amount
     ) internal virtual {}
-
-    function _msgSender() internal view virtual returns (address payable) {
-        return payable(msg.sender);
-    }
 }

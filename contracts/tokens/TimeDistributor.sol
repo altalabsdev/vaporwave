@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IDistributor.sol";
 
-contract TimeDistributor is IDistributor {
-    using SafeMath for uint256;
+/// Sender is not the admin
+error OnlyAdmin();
+
+/// @title Vaporwave Time Distributor
+contract TimeDistributor is IDistributor, Ownable {
     using SafeERC20 for IERC20;
 
     uint256 public constant DISTRIBUTION_INTERVAL = 1 hours;
-    address public gov;
     address public admin;
 
     mapping(address => address) public rewardTokens;
@@ -27,23 +29,13 @@ contract TimeDistributor is IDistributor {
     );
     event TokensPerIntervalChange(address receiver, uint256 amount);
 
-    modifier onlyGov() {
-        require(msg.sender == gov, "TimeDistributor: forbidden");
-        _;
-    }
-
     modifier onlyAdmin() {
         require(msg.sender == admin, "TimeDistributor: forbidden");
         _;
     }
 
     constructor() {
-        gov = msg.sender;
         admin = msg.sender;
-    }
-
-    function setGov(address _gov) external onlyGov {
-        gov = _gov;
     }
 
     function setTokensPerInterval(address _receiver, uint256 _amount)
@@ -68,7 +60,7 @@ contract TimeDistributor is IDistributor {
         address[] calldata _receivers,
         uint256[] calldata _amounts,
         address[] calldata _rewardTokens
-    ) external onlyGov {
+    ) external onlyOwner {
         for (uint256 i = 0; i < _receivers.length; i++) {
             address receiver = _receivers[i];
 
@@ -131,7 +123,7 @@ contract TimeDistributor is IDistributor {
         }
 
         uint256 intervals = getIntervals(_receiver);
-        uint256 amount = _tokensPerInterval.mul(intervals);
+        uint256 amount = _tokensPerInterval * intervals;
 
         if (IERC20(rewardTokens[_receiver]).balanceOf(address(this)) < amount) {
             return 0;
@@ -141,14 +133,13 @@ contract TimeDistributor is IDistributor {
     }
 
     function getIntervals(address _receiver) public view returns (uint256) {
-        uint256 timeDiff = block.timestamp.sub(lastDistributionTime[_receiver]);
-        return timeDiff.div(DISTRIBUTION_INTERVAL);
+        uint256 timeDiff = block.timestamp - lastDistributionTime[_receiver];
+        return timeDiff / DISTRIBUTION_INTERVAL;
     }
 
     function _updateLastDistributionTime(address _receiver) private {
-        lastDistributionTime[_receiver] = block
-            .timestamp
-            .div(DISTRIBUTION_INTERVAL)
-            .mul(DISTRIBUTION_INTERVAL);
+        lastDistributionTime[_receiver] =
+            (block.timestamp / DISTRIBUTION_INTERVAL) *
+            DISTRIBUTION_INTERVAL;
     }
 }

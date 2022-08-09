@@ -4,31 +4,47 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IRewardTracker.sol";
 import "./interfaces/IVester.sol";
 import "../tokens/interfaces/IMintable.sol";
 import "../tokens/interfaces/IWETH.sol";
 import "../core/interfaces/IVlpManager.sol";
-import "../access/Governable.sol";
+
+/// Contract is already initialized
+error AlreadyInitialized();
+/// The sender must be `weth`
+error InvalidSender();
+/// Receiver has staked tokens or cumulated rewards
+error InvalidReceiver();
+/// Amount must be greater than 0
+error InvalidAmount();
+/// Value must be greater than 0
+error InvalidValue();
+/// The sender of the transfer has vested tokens
+error SenderHasVestedTokens();
+/// The transfer has not been signalled
+error TransferNotSignalled();
 
 /// @title Vaporwave Reward Router
-contract RewardRouterV2 is ReentrancyGuard, Governable {
-    using SafeMath for uint256;
+contract RewardRouterV2 is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
     bool public isInitialized;
 
+    /// Wrapped Ether (WETH) token address
     address public weth;
-
+    /// VWAVE token address
     address public vwave;
+    /// EsVWAVE token address
     address public esVwave;
     address public bnVwave;
 
-    address public vlp; // VWAVE Liquidity Provider token
+    /// VWAVE Liquidity Provider token
+    address public vlp;
 
     address public stakedVwaveTracker;
     address public bonusVwaveTracker;
@@ -51,9 +67,26 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
     event UnstakeVlp(address account, uint256 amount);
 
     receive() external payable {
-        require(msg.sender == weth, "Router: invalid sender");
+        if (msg.sender != weth) {
+            revert InvalidSender();
+        }
     }
 
+    /// @notice Initialize the contract
+    /// @dev Function can only be called once
+    /// @param _weth Wrapped Ether (WETH) token address
+    /// @param _vwave VWAVE token address
+    /// @param _esVwave EsVWAVE token address
+    /// @param _bnVwave BnVWAVE token address
+    /// @param _vlp VWAVE Liquidity Provider token address
+    /// @param _stakedVwaveTracker StakedVwaveTracker address
+    /// @param _bonusVwaveTracker BonusVwaveTracker address
+    /// @param _feeVwaveTracker FeeVwaveTracker address
+    /// @param _feeVlpTracker FeeVlpTracker address
+    /// @param _stakedVlpTracker StakedVlpTracker address
+    /// @param _vlpManager VlpManager address
+    /// @param _vwaveVester VWAVE Vester address
+    /// @param _vlpVester VLP Vester address
     function initialize(
         address _weth,
         address _vwave,
@@ -68,8 +101,10 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         address _vlpManager,
         address _vwaveVester,
         address _vlpVester
-    ) external onlyGov {
-        require(!isInitialized, "RewardRouter: already initialized");
+    ) external onlyOwner {
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
         isInitialized = true;
 
         weth = _weth;
@@ -93,45 +128,66 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         vlpVester = _vlpVester;
     }
 
-    // to help users who accidentally send their tokens to this contract
+    /// @notice Send `amount` of `_token` from this contract to `_account`
+    /// @dev to help users who accidentally send their tokens to this contract
+    /// @param _token The token to withdraw
+    /// @param _account The account to receive the tokens
+    /// @param _amount The amount of tokens to withdraw
     function withdrawToken(
         address _token,
         address _account,
         uint256 _amount
-    ) external onlyGov {
+    ) external onlyOwner {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
-    function batchStakeVwaveForAccount(
+    /// @notice Stake VWAVE for an array of accounts
+    /// @dev Save gas by staking VWAVE for multiple accounts at once
+    /// @param _accounts An array of accounts to stake VWAVE for
+    /// @param _amounts An array of amounts to stake for each account
+    function batchStakeVwaveForAccounts(
         address[] memory _accounts,
         uint256[] memory _amounts
-    ) external nonReentrant onlyGov {
+    ) external nonReentrant onlyOwner {
         address _vwave = vwave;
         for (uint256 i = 0; i < _accounts.length; i++) {
             _stakeVwave(msg.sender, _accounts[i], _vwave, _amounts[i]);
         }
     }
 
+    /// @notice Stake VWAVE for `_account`
+    /// @param _account The account to stake VWAVE for
+    /// @param _amount The amount of VWAVE to stake
     function stakeVwaveForAccount(address _account, uint256 _amount)
         external
         nonReentrant
-        onlyGov
+        onlyOwner
     {
         _stakeVwave(msg.sender, _account, vwave, _amount);
     }
 
+    /// @notice Stake VWAVE
+    /// @param _amount The amount of VWAVE to stake
     function stakeVwave(uint256 _amount) external nonReentrant {
         _stakeVwave(msg.sender, msg.sender, vwave, _amount);
     }
 
+    /// @notice Stake EsVWAVE
+    /// @notice _amount The amount of EsVWAVE to stake
     function stakeEsVwave(uint256 _amount) external nonReentrant {
         _stakeVwave(msg.sender, msg.sender, esVwave, _amount);
     }
 
+    /// @notice Unstake VWAVE
+    /// @dev This will reduce the user's BnVWAVE
+    /// @param _amount The amount of VWAVE to unstake
     function unstakeVwave(uint256 _amount) external nonReentrant {
         _unstakeVwave(msg.sender, vwave, _amount, true);
     }
 
+    /// @notice Unstake EsVWAVE
+    /// @dev This will reduce the user's BnVWAVE
+    /// @param _amount The amount of EsVWAVE to unstake
     function unstakeEsVwave(uint256 _amount) external nonReentrant {
         _unstakeVwave(msg.sender, esVwave, _amount, true);
     }
@@ -142,7 +198,9 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         uint256 _minUsdv,
         uint256 _minVlp
     ) external nonReentrant returns (uint256) {
-        require(_amount > 0, "RewardRouter: invalid _amount");
+        if (_amount == 0) {
+            revert InvalidAmount();
+        }
 
         address account = msg.sender;
         uint256 vlpAmount = IVlpManager(vlpManager).addLiquidityForAccount(
@@ -177,7 +235,9 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         nonReentrant
         returns (uint256)
     {
-        require(msg.value > 0, "RewardRouter: invalid msg.value");
+        if (msg.value == 0) {
+            revert InvalidValue();
+        }
 
         IWETH(weth).deposit{value: msg.value}();
         IERC20(weth).approve(vlpManager, msg.value);
@@ -216,7 +276,9 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         uint256 _minOut,
         address _receiver
     ) external nonReentrant returns (uint256) {
-        require(_vlpAmount > 0, "RewardRouter: invalid _vlpAmount");
+        if (_vlpAmount == 0) {
+            revert InvalidAmount();
+        }
 
         address account = msg.sender;
         IRewardTracker(stakedVlpTracker).unstakeForAccount(
@@ -249,7 +311,9 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         uint256 _minOut,
         address payable _receiver
     ) external nonReentrant returns (uint256) {
-        require(_vlpAmount > 0, "RewardRouter: invalid _vlpAmount");
+        if (_vlpAmount == 0) {
+            revert InvalidAmount();
+        }
 
         address account = msg.sender;
         IRewardTracker(stakedVlpTracker).unstakeForAccount(
@@ -281,6 +345,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         return amountOut;
     }
 
+    /// @notice Claim accrued fees + EsVWAVE
     function claim() external nonReentrant {
         address account = msg.sender;
 
@@ -291,6 +356,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         IRewardTracker(stakedVlpTracker).claimForAccount(account, account);
     }
 
+    /// @notice Claim EsVWAVE from staked VWAVE and VLP
     function claimEsVwave() external nonReentrant {
         address account = msg.sender;
 
@@ -298,6 +364,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         IRewardTracker(stakedVlpTracker).claimForAccount(account, account);
     }
 
+    /// @notice Claim accrued fees
     function claimFees() external nonReentrant {
         address account = msg.sender;
 
@@ -305,14 +372,17 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         IRewardTracker(feeVlpTracker).claimForAccount(account, account);
     }
 
+    /// @notice Compound staked VWAVE and VLP
     function compound() external nonReentrant {
         _compound(msg.sender);
     }
 
+    /// @notice Compound staked VWAVE and VLP for `_account`
+    /// @param _account The account to compound for
     function compoundForAccount(address _account)
         external
         nonReentrant
-        onlyGov
+        onlyOwner
     {
         _compound(_account);
     }
@@ -338,7 +408,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
                 account,
                 account
             );
-            vwaveAmount = vwaveAmount0.add(vwaveAmount1);
+            vwaveAmount = vwaveAmount0 + vwaveAmount1;
         }
 
         if (_shouldStakeVwave && vwaveAmount > 0) {
@@ -351,7 +421,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
                 .claimForAccount(account, account);
             uint256 esVwaveAmount1 = IRewardTracker(stakedVlpTracker)
                 .claimForAccount(account, account);
-            esVwaveAmount = esVwaveAmount0.add(esVwaveAmount1);
+            esVwaveAmount = esVwaveAmount0 + esVwaveAmount1;
         }
 
         if (_shouldStakeEsVwave && esVwaveAmount > 0) {
@@ -382,7 +452,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
                     address(this)
                 );
 
-                uint256 wethAmount = weth0.add(weth1);
+                uint256 wethAmount = weth0 + weth1;
                 IWETH(weth).withdraw(wethAmount);
 
                 payable(account).sendValue(wethAmount);
@@ -399,42 +469,44 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
     function batchCompoundForAccounts(address[] memory _accounts)
         external
         nonReentrant
-        onlyGov
+        onlyOwner
     {
         for (uint256 i = 0; i < _accounts.length; i++) {
             _compound(_accounts[i]);
         }
     }
 
+    /// @notice Signal a transfer to `_receiver`
+    /// @dev Sender cannot have vested tokens
+    /// @param _receiver The address to transfer to
     function signalTransfer(address _receiver) external nonReentrant {
-        require(
-            IERC20(vwaveVester).balanceOf(msg.sender) == 0,
-            "RewardRouter: sender has vested tokens"
-        );
-        require(
-            IERC20(vlpVester).balanceOf(msg.sender) == 0,
-            "RewardRouter: sender has vested tokens"
-        );
+        if (
+            IERC20(vwaveVester).balanceOf(msg.sender) > 0 ||
+            IERC20(vlpVester).balanceOf(msg.sender) > 0
+        ) {
+            revert SenderHasVestedTokens();
+        }
 
         _validateReceiver(_receiver);
         pendingReceivers[msg.sender] = _receiver;
     }
 
+    /// @notice Accept a pending transfer from `_sender`
+    /// @dev Sender cannot have vested tokens
+    /// @param _sender The sender of the transfer
     function acceptTransfer(address _sender) external nonReentrant {
-        require(
-            IERC20(vwaveVester).balanceOf(_sender) == 0,
-            "RewardRouter: sender has vested tokens"
-        );
-        require(
-            IERC20(vlpVester).balanceOf(_sender) == 0,
-            "RewardRouter: sender has vested tokens"
-        );
+        if (
+            IERC20(vwaveVester).balanceOf(_sender) > 0 ||
+            IERC20(vlpVester).balanceOf(_sender) > 0
+        ) {
+            revert SenderHasVestedTokens();
+        }
 
         address receiver = msg.sender;
-        require(
-            pendingReceivers[_sender] == receiver,
-            "RewardRouter: transfer not signalled"
-        );
+        if (pendingReceivers[_sender] != receiver) {
+            revert TransferNotSignalled();
+        }
+
         delete pendingReceivers[_sender];
 
         _validateReceiver(receiver);
@@ -514,87 +586,6 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         IVester(vlpVester).transferStakeValues(_sender, receiver);
     }
 
-    function _validateReceiver(address _receiver) private view {
-        require(
-            IRewardTracker(stakedVwaveTracker).averageStakedAmounts(
-                _receiver
-            ) == 0,
-            "RewardRouter: stakedVwaveTracker.averageStakedAmounts > 0"
-        );
-        require(
-            IRewardTracker(stakedVwaveTracker).cumulativeRewards(_receiver) ==
-                0,
-            "RewardRouter: stakedVwaveTracker.cumulativeRewards > 0"
-        );
-
-        require(
-            IRewardTracker(bonusVwaveTracker).averageStakedAmounts(_receiver) ==
-                0,
-            "RewardRouter: bonusVwaveTracker.averageStakedAmounts > 0"
-        );
-        require(
-            IRewardTracker(bonusVwaveTracker).cumulativeRewards(_receiver) == 0,
-            "RewardRouter: bonusVwaveTracker.cumulativeRewards > 0"
-        );
-
-        require(
-            IRewardTracker(feeVwaveTracker).averageStakedAmounts(_receiver) ==
-                0,
-            "RewardRouter: feeVwaveTracker.averageStakedAmounts > 0"
-        );
-        require(
-            IRewardTracker(feeVwaveTracker).cumulativeRewards(_receiver) == 0,
-            "RewardRouter: feeVwaveTracker.cumulativeRewards > 0"
-        );
-
-        require(
-            IVester(vwaveVester).transferredAverageStakedAmounts(_receiver) ==
-                0,
-            "RewardRouter: vwaveVester.transferredAverageStakedAmounts > 0"
-        );
-        require(
-            IVester(vwaveVester).transferredCumulativeRewards(_receiver) == 0,
-            "RewardRouter: vwaveVester.transferredCumulativeRewards > 0"
-        );
-
-        require(
-            IRewardTracker(stakedVlpTracker).averageStakedAmounts(_receiver) ==
-                0,
-            "RewardRouter: stakedVlpTracker.averageStakedAmounts > 0"
-        );
-        require(
-            IRewardTracker(stakedVlpTracker).cumulativeRewards(_receiver) == 0,
-            "RewardRouter: stakedVlpTracker.cumulativeRewards > 0"
-        );
-
-        require(
-            IRewardTracker(feeVlpTracker).averageStakedAmounts(_receiver) == 0,
-            "RewardRouter: feeVlpTracker.averageStakedAmounts > 0"
-        );
-        require(
-            IRewardTracker(feeVlpTracker).cumulativeRewards(_receiver) == 0,
-            "RewardRouter: feeVlpTracker.cumulativeRewards > 0"
-        );
-
-        require(
-            IVester(vlpVester).transferredAverageStakedAmounts(_receiver) == 0,
-            "RewardRouter: vwaveVester.transferredAverageStakedAmounts > 0"
-        );
-        require(
-            IVester(vlpVester).transferredCumulativeRewards(_receiver) == 0,
-            "RewardRouter: vwaveVester.transferredCumulativeRewards > 0"
-        );
-
-        require(
-            IERC20(vwaveVester).balanceOf(_receiver) == 0,
-            "RewardRouter: vwaveVester.balance > 0"
-        );
-        require(
-            IERC20(vlpVester).balanceOf(_receiver) == 0,
-            "RewardRouter: vlpVester.balance > 0"
-        );
-    }
-
     function _compound(address _account) private {
         _compoundVwave(_account);
         _compoundVlp(_account);
@@ -633,7 +624,9 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         address _token,
         uint256 _amount
     ) private {
-        require(_amount > 0, "RewardRouter: invalid _amount");
+        if (_amount == 0) {
+            revert InvalidAmount();
+        }
 
         IRewardTracker(stakedVwaveTracker).stakeForAccount(
             _fundingAccount,
@@ -663,7 +656,9 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         uint256 _amount,
         bool _shouldReduceBnVwave
     ) private {
-        require(_amount > 0, "RewardRouter: invalid _amount");
+        if (_amount == 0) {
+            revert InvalidAmount();
+        }
 
         uint256 balance = IRewardTracker(stakedVwaveTracker).stakedAmounts(
             _account
@@ -703,9 +698,7 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
             uint256 stakedBnVwave = IRewardTracker(feeVwaveTracker)
                 .depositBalances(_account, bnVwave);
             if (stakedBnVwave > 0) {
-                uint256 reductionAmount = stakedBnVwave.mul(_amount).div(
-                    balance
-                );
+                uint256 reductionAmount = (stakedBnVwave * _amount) / balance;
                 IRewardTracker(feeVwaveTracker).unstakeForAccount(
                     _account,
                     bnVwave,
@@ -717,5 +710,35 @@ contract RewardRouterV2 is ReentrancyGuard, Governable {
         }
 
         emit UnstakeVwave(_account, _token, _amount);
+    }
+
+    function _validateReceiver(address _receiver) private view {
+        if (
+            IRewardTracker(stakedVwaveTracker).averageStakedAmounts(_receiver) >
+            0 ||
+            IRewardTracker(stakedVwaveTracker).cumulativeRewards(_receiver) >
+            0 ||
+            IRewardTracker(bonusVwaveTracker).averageStakedAmounts(_receiver) >
+            0 ||
+            IRewardTracker(bonusVwaveTracker).cumulativeRewards(_receiver) >
+            0 ||
+            IRewardTracker(feeVwaveTracker).averageStakedAmounts(_receiver) >
+            0 ||
+            IRewardTracker(feeVwaveTracker).cumulativeRewards(_receiver) > 0 ||
+            IVester(vwaveVester).transferredAverageStakedAmounts(_receiver) >
+            0 ||
+            IVester(vwaveVester).transferredCumulativeRewards(_receiver) > 0 ||
+            IRewardTracker(stakedVlpTracker).averageStakedAmounts(_receiver) >
+            0 ||
+            IRewardTracker(stakedVlpTracker).cumulativeRewards(_receiver) > 0 ||
+            IRewardTracker(feeVlpTracker).averageStakedAmounts(_receiver) > 0 ||
+            IRewardTracker(feeVlpTracker).cumulativeRewards(_receiver) > 0 ||
+            IVester(vlpVester).transferredAverageStakedAmounts(_receiver) > 0 ||
+            IVester(vlpVester).transferredCumulativeRewards(_receiver) > 0 ||
+            IERC20(vwaveVester).balanceOf(_receiver) > 0 ||
+            IERC20(vlpVester).balanceOf(_receiver) > 0
+        ) {
+            revert InvalidReceiver();
+        }
     }
 }
