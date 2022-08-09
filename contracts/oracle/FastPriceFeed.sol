@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
 
 import "./interfaces/ISecondaryPriceFeed.sol";
 import "./interfaces/IFastPriceFeed.sol";
@@ -26,9 +27,9 @@ error AlreadyInitialized();
 // TODO finish NatSpec
 /// @title Vaporwave Fast Price Feed
 contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
-    // type(uint256).max is 256 bits of 1s
-    // shift the 1s by (256 - 32) to get (256 - 32) 0s followed by 32 1s
-    uint256 public constant PRICE_BITMASK = type(uint256).max >> (256 - 32);
+    using Counters for Counters.Counter;
+
+    uint32 public constant PRICE_BITMASK = type(uint32).max; // 4294967295
 
     /// The max price duration is 30 minutes (1800 seconds)
     uint16 public constant MAX_PRICE_DURATION = 30 minutes;
@@ -68,7 +69,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
     /// The minimum authorizations to disable the fast price feed
     uint256 public minAuthorizations;
     /// The disable fast price vote counter
-    uint256 public disableFastPriceVoteCount; // TODO change to counter
+    Counters.Counter private _disableFastPriceVoteCount;
 
     /// Mapping of token prices
     mapping(address => uint256) public prices;
@@ -85,7 +86,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
     // array of tokenPrecisions used in setCompactedPrices, saves L1 calldata gas costs
     // if the token price will be sent with 3 decimals, then tokenPrecision for that token
     // should be 10 ** 3
-    uint256[] public tokenPrecisions;
+    uint256[] public tokenPrecisions; // TODO remove if not needed for Aurora
 
     /// @notice Emitted when a vote is cast to disable the fast price
     /// @param signer The address of the signer
@@ -292,7 +293,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
             revert AlreadyVoted();
         }
         disableFastPriceVotes[msg.sender] = true;
-        disableFastPriceVoteCount++;
+        _disableFastPriceVoteCount.increment();
 
         emit DisableFastPrice(msg.sender);
     }
@@ -302,7 +303,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
             revert AlreadyVoted();
         }
         disableFastPriceVotes[msg.sender] = false;
-        disableFastPriceVoteCount--;
+        _disableFastPriceVoteCount.decrement();
 
         emit EnableFastPrice(msg.sender);
     }
@@ -312,6 +313,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         uint256 _refPrice,
         bool _maximise
     ) external view override returns (uint256) {
+        // solhint-disable-next-line not-rely-on-time
         if (block.timestamp > lastUpdatedAt + priceDuration) {
             return _refPrice;
         }
@@ -366,6 +368,10 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         return fastPrice < minPrice ? minPrice : fastPrice;
     }
 
+    function disableFastPriceVoteCount() external view returns (uint256) {
+        return _disableFastPriceVoteCount.current();
+    }
+
     function initialize(
         uint256 _minAuthorizations,
         address[] memory _signers,
@@ -394,7 +400,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
             return false;
         }
 
-        if (disableFastPriceVoteCount >= minAuthorizations) {
+        if (_disableFastPriceVoteCount.current() >= minAuthorizations) {
             return false;
         }
 
@@ -443,13 +449,15 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
 
     function _setLastUpdatedValues(uint256 _timestamp) private returns (bool) {
         if (minBlockInterval > 0) {
-            if (block.timestamp - lastUpdatedBlock < minBlockInterval) {
+            if (block.number - lastUpdatedBlock < minBlockInterval) {
                 revert UpdateCooldown();
             }
         }
 
         if (
+            // solhint-disable-next-line not-rely-on-time
             _timestamp <= block.timestamp - maxTimeDeviation ||
+            // solhint-disable-next-line not-rely-on-time
             _timestamp >= block.timestamp + maxTimeDeviation
         ) {
             revert InvalidTimestamp();
