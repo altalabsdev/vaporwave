@@ -171,18 +171,18 @@ describe("OrderBook", function () {
     await vault.directPoolDeposit(bnb.address);
   });
 
-  it("setGov", async () => {
+  it("transferOwnership", async () => {
     await expect(
-      orderBook.connect(user0).setGov(user1.address)
-    ).to.be.revertedWith("OrderBook: forbidden");
+      orderBook.connect(user0).transferOwnership(user1.address)
+    ).to.be.revertedWithCustomError(orderBook, "OrderBookForbidden");
 
-    expect(await orderBook.gov()).eq(wallet.address);
+    expect(await orderBook.owner()).eq(wallet.address);
 
-    await orderBook.setGov(user0.address);
-    expect(await orderBook.gov()).eq(user0.address);
+    await orderBook.transferOwnership(user0.address);
+    expect(await orderBook.owner()).eq(user0.address);
 
-    await orderBook.connect(user0).setGov(user1.address);
-    expect(await orderBook.gov()).eq(user1.address);
+    await orderBook.connect(user0).transferOwnership(user1.address);
+    expect(await orderBook.owner()).eq(user1.address);
   });
 
   it("set*", async () => {
@@ -192,7 +192,7 @@ describe("OrderBook", function () {
     ];
     for (const [name, arg] of cases) {
       await expect(orderBook.connect(user1)[name](arg)).to.be.revertedWith(
-        "OrderBook: forbidden"
+        "Ownable: caller is not the owner"
       );
       await expect(orderBook[name](arg));
     }
@@ -208,7 +208,7 @@ describe("OrderBook", function () {
         1,
         expandDecimals(5, 30) // minPurchseTokenAmountUsd
       )
-    ).to.be.revertedWith("OrderBook: forbidden");
+    ).to.be.revertedWith("Ownable: caller is not the owner");
 
     await expect(
       orderBook.initialize(
@@ -219,6 +219,6 @@ describe("OrderBook", function () {
         1,
         expandDecimals(5, 30) // minPurchseTokenAmountUsd
       )
-    ).to.be.revertedWith("OrderBook: already initialized");
+    ).to.be.revertedWithCustomError(orderBook, "AlreadyInitialized");
   });
 });
