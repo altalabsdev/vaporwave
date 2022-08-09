@@ -23,19 +23,37 @@ error LongLeverageDecrease();
 contract PositionManager is BasePositionManager {
     using SafeERC20 for IERC20;
 
+    /// The order book address
     address public orderBook;
+    /// True if the contract is in legaacy mode
     bool public inLegacyMode;
-
+    /// True if the contract should validate increase order
     bool public shouldValidateIncreaseOrder = true;
 
+    /// Mapping of order keepers
     mapping(address => bool) public isOrderKeeper;
+    /// Mapping of partners
     mapping(address => bool) public isPartner;
+    /// Mapping of liquidators
     mapping(address => bool) public isLiquidator;
 
+    /// @notice Emitted when an order keeper is updated
+    /// @param account The address of the order keeper
+    /// @param isActive Whether the order keeper is active
     event SetOrderKeeper(address indexed account, bool isActive);
+    /// @notice Emitted when a liquidator is updated
+    /// @param account The address of the liquidator
+    /// @param isActive Whether the liquidator is active
     event SetLiquidator(address indexed account, bool isActive);
+    /// @notice Emitted when a partner is updated
+    /// @param account The address of the partner
+    /// @param isActive Whether the partner is active
     event SetPartner(address account, bool isActive);
+    /// @notice Emitted when the inLegacyMode variable is updated
+    /// @param inLegacyMode Whether the contract is in legacy mode
     event SetInLegacyMode(bool inLegacyMode);
+    /// @notice Emitted when the shouldValidateIncreaseOrder variable is updated
+    /// @param shouldValidateIncreaseOrder Whether the contract should validate increase orders
     event SetShouldValidateIncreaseOrder(bool shouldValidateIncreaseOrder);
 
     modifier onlyOrderKeeper() {
