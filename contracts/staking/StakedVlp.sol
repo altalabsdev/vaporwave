@@ -12,20 +12,14 @@ import "./interfaces/IRewardTracker.sol";
 error InsufficientAllowance();
 /// Token cannot interact with the zero address
 error ZeroAddress();
+/// Must wait for the cooldown period to end to transfer
+error TransferCooldown();
 
-// TODO add NatSpec
 // provide a way to transfer staked VLP tokens by unstaking from the sender
 // and staking for the receiver
 // tests in RewardRouterV2.js
 /// @title Vaporwave Staked VLP token contract
 contract StakedVlp {
-    /// The name of the token is StakedVlp
-    string public constant name = "StakedVlp";
-    /// The token symbol is sVLP
-    string public constant symbol = "sVLP";
-    /// The decimals of the token is 18
-    uint8 public constant decimals = 18;
-
     /// The VLP token address
     address public vlp;
     /// The VLP manager address
@@ -60,6 +54,10 @@ contract StakedVlp {
         feeVlpTracker = _feeVlpTracker;
     }
 
+    /// @notice Approve `_spender` to transfer `_amount` tokens
+    /// @param _spender The address that is allowed to spend the tokens
+    /// @param _amount The amount of tokens approved
+    /// @return Whether the approval was successful
     function approve(address _spender, uint256 _amount)
         external
         returns (bool)
@@ -69,6 +67,9 @@ contract StakedVlp {
     }
 
     /// @notice Transfer `_amount` tokens to `_recipient`
+    /// @param _recipient The address that will receive the tokens
+    /// @param _amount The amount of tokens to transfer
+    /// @return Whether the transfer was successful
     function transfer(address _recipient, uint256 _amount)
         external
         returns (bool)
@@ -77,6 +78,11 @@ contract StakedVlp {
         return true;
     }
 
+    /// @notice Transfer `_amount` tokens from `_sender` to `_recipient`
+    /// @param _sender The address that will send the tokens
+    /// @param _recipient The address that will receive the tokens
+    /// @param _amount The amount of tokens to transfer
+    /// @return Whether the transfer was successful
     function transferFrom(
         address _sender,
         address _recipient,
@@ -93,6 +99,10 @@ contract StakedVlp {
         return true;
     }
 
+    /// @notice Get the allowance of `_spender` for `_owner`
+    /// @param _owner The address that owns the tokens
+    /// @param _spender The address that is allowed to spend the tokens
+    /// @return The amount of tokens that `_spender` is allowed to spend for `_owner`
     function allowance(address _owner, address _spender)
         external
         view
@@ -101,12 +111,35 @@ contract StakedVlp {
         return allowances[_owner][_spender];
     }
 
+    /// @notice Get the token balance of `_account`
+    /// @param _account The address to query for the token balance
+    /// @return The amount of tokens that `_account` owns
     function balanceOf(address _account) external view returns (uint256) {
         return IRewardTracker(stakedVlpTracker).depositBalances(_account, vlp);
     }
 
+    /// @notice Get the total supply
+    /// @return The total supply
     function totalSupply() external view returns (uint256) {
         return IERC20(stakedVlpTracker).totalSupply();
+    }
+
+    /// @notice Get the token name
+    /// @return The token name (StakedVlp)
+    function name() external pure returns (string memory) {
+        return "StakedVlp";
+    }
+
+    /// @notice Get the token symbol
+    /// @return The token symbol (sVLP)
+    function symbol() external pure returns (string memory) {
+        return "sVLP";
+    }
+
+    /// @notice Get the token decimals (18)
+    /// @return The token decimals (18)
+    function decimals() external pure returns (uint8) {
+        return 18;
     }
 
     function _approve(
@@ -132,11 +165,13 @@ contract StakedVlp {
             revert ZeroAddress();
         }
 
-        require(
-            vlpManager.lastAddedAt(_sender) + vlpManager.cooldownDuration() <=
-                block.timestamp,
-            "StakedVlp: cooldown duration not yet passed"
-        );
+        if (
+            vlpManager.lastAddedAt(_sender) + vlpManager.cooldownDuration() >
+            // solhint-disable-next-line not-rely-on-time
+            block.timestamp
+        ) {
+            revert TransferCooldown();
+        }
 
         IRewardTracker(stakedVlpTracker).unstakeForAccount(
             _sender,
