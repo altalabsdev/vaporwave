@@ -4,16 +4,14 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../tokens/interfaces/IWETH.sol";
 import "./interfaces/IRouter.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IOrderBook.sol";
 
-/// Account does not have function permissions
-error OrderBookForbidden();
 /// Contract already initialized
 error AlreadyInitialized();
 /// Invalid execution price
@@ -36,8 +34,7 @@ error InsufficientCollateral();
 error NonexistentOrder();
 
 /// @title Vaporwave Order Book
-contract OrderBook is ReentrancyGuard, IOrderBook {
-    using SafeMath for uint256;
+contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
     using SafeERC20 for IERC20;
     using Address for address payable;
 
@@ -75,25 +72,40 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 executionFee;
     }
 
-    uint256 public constant PRICE_PRECISION = 1e30;
-    uint256 public constant USDV_PRECISION = 1e18;
+    /// Helper to avoid truncation errors in price calculations
+    uint128 public constant PRICE_PRECISION = 1e30;
+    /// Helper to avoid truncation errors in usdv calculations
+    uint128 public constant USDV_PRECISION = 1e18;
 
+    /// Mapping of increase orders by account
     mapping(address => mapping(uint256 => IncreaseOrder)) public increaseOrders;
+    /// Mapping of account increase order index
     mapping(address => uint256) public increaseOrdersIndex;
+    /// Mapping of decrease orders by account
     mapping(address => mapping(uint256 => DecreaseOrder)) public decreaseOrders;
+    /// Mapping of account decrease order index
     mapping(address => uint256) public decreaseOrdersIndex;
+    /// Mapping of swap orders by account
     mapping(address => mapping(uint256 => SwapOrder)) public swapOrders;
+    /// Mapping of account swap order index
     mapping(address => uint256) public swapOrdersIndex;
 
-    address public gov;
+    /// Wrapped Ether (WETH) token address
     address public weth;
+    /// USD Vaporwave (USDV) token address
     address public usdv;
+    /// The router address
     address public router;
+    /// The vault address
     address public vault;
+    /// The minimum execution fee
     uint256 public minExecutionFee;
+    /// The minimum purchase token amount in USD
     uint256 public minPurchaseTokenAmountUsd;
-    bool public isInitialized = false;
+    /// True if the contract has been initialized
+    bool public isInitialized;
 
+    /// @notice Emitted when an increase order is created
     event CreateIncreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -107,6 +119,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool triggerAboveThreshold,
         uint256 executionFee
     );
+    /// @notice Emitted when an increase order is cancelled
     event CancelIncreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -120,6 +133,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool triggerAboveThreshold,
         uint256 executionFee
     );
+    /// @notice Emitted when an increase order is executed
     event ExecuteIncreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -134,6 +148,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 executionFee,
         uint256 executionPrice
     );
+    /// @notice Emitted when an increase order is updated
     event UpdateIncreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -144,6 +159,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 triggerPrice,
         bool triggerAboveThreshold
     );
+    /// @notice Emitted when an decrease order is created
     event CreateDecreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -156,6 +172,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool triggerAboveThreshold,
         uint256 executionFee
     );
+    /// @notice Emitted when an decrease order is cancelled
     event CancelDecreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -168,6 +185,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool triggerAboveThreshold,
         uint256 executionFee
     );
+    /// @notice Emitted when an decrease order is executed
     event ExecuteDecreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -181,6 +199,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 executionFee,
         uint256 executionPrice
     );
+    /// @notice Emitted when an decrease order is updated
     event UpdateDecreaseOrder(
         address indexed account,
         uint256 orderIndex,
@@ -192,6 +211,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 triggerPrice,
         bool triggerAboveThreshold
     );
+    /// @notice Emitted when an swap order is created
     event CreateSwapOrder(
         address indexed account,
         uint256 orderIndex,
@@ -203,6 +223,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool shouldUnwrap,
         uint256 executionFee
     );
+    /// @notice Emitted when an swap order is cancelled
     event CancelSwapOrder(
         address indexed account,
         uint256 orderIndex,
@@ -214,6 +235,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool shouldUnwrap,
         uint256 executionFee
     );
+    /// @notice Emitted when an swap order is updated
     event UpdateSwapOrder(
         address indexed account,
         uint256 ordexIndex,
@@ -225,6 +247,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool shouldUnwrap,
         uint256 executionFee
     );
+    /// @notice Emitted when an swap order is executed
     event ExecuteSwapOrder(
         address indexed account,
         uint256 orderIndex,
@@ -237,7 +260,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         bool shouldUnwrap,
         uint256 executionFee
     );
-
+    /// @notice Emitted when the contract is initialized
     event Initialize(
         address router,
         address vault,
@@ -246,19 +269,16 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 minExecutionFee,
         uint256 minPurchaseTokenAmountUsd
     );
+    /// @notice Emitted when the minimum execution fee is updated
+    /// @param minExecutionFee The new minimum execution fee
     event UpdateMinExecutionFee(uint256 minExecutionFee);
+    /// @notice Emitted when the minimum purchase token amount in USD is updated
+    /// @param minPurchaseTokenAmountUsd The new minimum purchase token amount in USD
     event UpdateMinPurchaseTokenAmountUsd(uint256 minPurchaseTokenAmountUsd);
-    event UpdateGov(address gov);
-
-    modifier onlyGov() {
-        if (msg.sender != gov) {
-            revert OrderBookForbidden();
-        }
-        _;
-    }
 
     constructor() {
-        gov = msg.sender;
+        // solhint-disable-next-line avoid-tx-origin
+        _transferOwnership(tx.origin); // TODO replace msg.sender with the initial owner address (NOTE should probably be an EOA, not a multisig)
     }
 
     receive() external payable {
@@ -268,6 +288,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Initialize the order book
+    /// @dev Emits an `Initialize` event
     /// @param _router The router contract address
     /// @param _vault The vault contract address
     /// @param _weth The WETH contract address
@@ -281,7 +302,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         address _usdv,
         uint256 _minExecutionFee,
         uint256 _minPurchaseTokenAmountUsd
-    ) external onlyGov {
+    ) external onlyOwner {
         if (isInitialized) {
             revert AlreadyInitialized();
         }
@@ -305,33 +326,24 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Set the Minimum Execution Fee to `_minExecutionFee`
+    /// @dev Emits an `UpdateMinExecutionFee` event
     /// @param _minExecutionFee The minimum execution fee
-    /// @dev Emits an event `UpdateMinExecutionFee`
-    function setMinExecutionFee(uint256 _minExecutionFee) external onlyGov {
+    function setMinExecutionFee(uint256 _minExecutionFee) external onlyOwner {
         minExecutionFee = _minExecutionFee;
 
         emit UpdateMinExecutionFee(_minExecutionFee);
     }
 
     /// @notice Set the Minimum Purchase Token Amount in USD to `_minPurchaseTokenAmountUsd`
+    /// @dev Emits an `UpdateMinPurchaseTokenAmountUsd` event
     /// @param _minPurchaseTokenAmountUsd The minimum purchase token amount in USD
-    /// @dev Emits an event `UpdateMinPurchaseTokenAmountUsd`
     function setMinPurchaseTokenAmountUsd(uint256 _minPurchaseTokenAmountUsd)
         external
-        onlyGov
+        onlyOwner
     {
         minPurchaseTokenAmountUsd = _minPurchaseTokenAmountUsd;
 
         emit UpdateMinPurchaseTokenAmountUsd(_minPurchaseTokenAmountUsd);
-    }
-
-    /// @notice Set the Governor address to `_gov`
-    /// @param _gov The governor address
-    /// @dev Emits an event `UpdateGov`
-    function setGov(address _gov) external onlyGov {
-        gov = _gov;
-
-        emit UpdateGov(_gov);
     }
 
     /// @notice Create a swap order
@@ -373,7 +385,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
             if (_path[0] != weth) {
                 revert InvalidPath();
             }
-            if (msg.value != _executionFee.add(_amountIn)) {
+            if (msg.value != _executionFee + _amountIn) {
                 revert InvalidValue();
             }
         } else {
@@ -515,7 +527,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     /// @dev User must always transfer in ETH for execution fee
     /// @param _path The path of the token swap
     /// @param _amountIn The amount of tokens to swap in
-    /// @param _indexToken The index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _minOut The minimum amount of tokens to swap out
     /// @param _sizeDelta The size delta
     /// @param _collateralToken The collateral token
@@ -547,7 +559,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
             if (_path[0] != weth) {
                 revert InvalidPath();
             }
-            if (msg.value != _executionFee.add(_amountIn)) {
+            if (msg.value != _executionFee + _amountIn) {
                 revert InvalidValue();
             }
         } else {
@@ -599,7 +611,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Update an increase order
-    /// @dev Emits an event `UpdateIncreaseOrder`
+    /// @dev Emits an `UpdateIncreaseOrder` event
     /// @param _orderIndex The index of the order to update
     /// @param _sizeDelta The size delta
     /// @param _triggerPrice The trigger price
@@ -632,7 +644,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Execute an increase order
-    /// @dev Emits an event `ExecuteIncreaseOrder`
+    /// @dev Emits an `ExecuteIncreaseOrder` event
     /// @param _address The account that owns the order
     /// @param _orderIndex The index of the increase order
     /// @param _feeReceiver The address to receive the fees
@@ -700,7 +712,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Create a decrease order
-    /// @param _indexToken The index token
+    /// @param _indexToken The address of the token to long or short
     /// @param _sizeDelta The size delta
     /// @param _collateralToken The collateral token
     /// @param _collateralDelta The collateral delta
@@ -736,7 +748,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Execute a decrease order
-    /// @dev Emits an event `ExecuteDecreaseOrder`
+    /// @dev Emits an `ExecuteDecreaseOrder` event
     /// @param _address The account that owns the decrease order
     /// @param _orderIndex The index of the decrease order
     /// @param _feeReceiver The address to receive the fees
@@ -801,7 +813,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Update a decrease order
-    /// @dev Emits an event `UpdateDecreaseOrder`
+    /// @dev Emits an `UpdateDecreaseOrder` event
     /// @param _orderIndex The index of the decrease order
     /// @param _collateralDelta The collateral delta
     /// @param _sizeDelta The size delta
@@ -838,7 +850,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Cancel an increase order
-    /// @dev Emits an event `CancelIncreaseOrder`
+    /// @dev Emits a `CancelIncreaseOrder` event
     /// @param _orderIndex The index of the order to cancel
     function cancelIncreaseOrder(uint256 _orderIndex) public nonReentrant {
         IncreaseOrder memory order = increaseOrders[msg.sender][_orderIndex];
@@ -850,7 +862,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
 
         if (order.purchaseToken == weth) {
             _transferOutETH(
-                order.executionFee.add(order.purchaseTokenAmount),
+                order.executionFee + order.purchaseTokenAmount,
                 payable(msg.sender)
             );
         } else {
@@ -877,7 +889,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     }
 
     /// @notice Cancel a decrease order
-    /// @dev Emits an event `CancelDecreaseOrder`
+    /// @dev Emits a `CancelDecreaseOrder` event
     /// @param _orderIndex The index of the decrease order
     function cancelDecreaseOrder(uint256 _orderIndex) public nonReentrant {
         DecreaseOrder memory order = decreaseOrders[msg.sender][_orderIndex];
@@ -904,7 +916,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
 
     /// @notice Cancel a swap order
     /// @dev Can only cancel the account's own swap orders
-    /// @dev Emits an event `CancelSwapOrder`
+    /// @dev Emits a `CancelSwapOrder` event
     /// @param _orderIndex The index of the order to cancel
     function cancelSwapOrder(uint256 _orderIndex) public nonReentrant {
         SwapOrder memory order = swapOrders[msg.sender][_orderIndex];
@@ -916,7 +928,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
 
         if (order.path[0] == weth) {
             _transferOutETH(
-                order.executionFee.add(order.amountIn),
+                order.executionFee + order.amountIn,
                 payable(msg.sender)
             );
         } else {
@@ -985,8 +997,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
         uint256 otherTokenPrice = IVault(vault).getMinPrice(_otherToken);
 
         uint256 otherTokenDecimals = IVault(vault).tokenDecimals(_otherToken);
-        return
-            redemptionAmount.mul(otherTokenPrice).div(10**otherTokenDecimals);
+        return (redemptionAmount * otherTokenPrice) / (10**otherTokenDecimals);
     }
 
     /// @notice Validate the swap order price is above the trigger threshold
@@ -1028,9 +1039,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
             tokenBPrice = IVault(vault).getMaxPrice(tokenB);
         }
 
-        uint256 currentRatio = tokenBPrice.mul(PRICE_PRECISION).div(
-            tokenAPrice
-        );
+        uint256 currentRatio = (tokenBPrice * PRICE_PRECISION) / tokenAPrice;
 
         bool isValid = currentRatio > _triggerRatio;
         return isValid;
@@ -1039,7 +1048,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
     /// @notice Validate the price of a position order
     /// @param _triggerAboveThreshold True if the threshold is above the trigger ratio, false otherwise
     /// @param _triggerPrice The price of the trigger ratio
-    /// @param _indexToken The index token of the position order
+    /// @param _indexToken The address of the token to long or short
     /// @param _maximizePrice True if the price should be maximised, false otherwise
     function validatePositionOrderPrice(
         bool _triggerAboveThreshold,
@@ -1145,7 +1154,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
             _shouldUnwrap,
             _executionFee
         );
-        swapOrdersIndex[_account] = _orderIndex.add(1);
+        swapOrdersIndex[_account] = _orderIndex + 1;
         swapOrders[_account][_orderIndex] = order;
 
         emit CreateSwapOrder(
@@ -1186,7 +1195,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
             _triggerAboveThreshold,
             _executionFee
         );
-        increaseOrdersIndex[_account] = _orderIndex.add(1);
+        increaseOrdersIndex[_account] = _orderIndex + 1;
         increaseOrders[_account][_orderIndex] = order;
 
         emit CreateIncreaseOrder(
@@ -1226,7 +1235,7 @@ contract OrderBook is ReentrancyGuard, IOrderBook {
             _triggerAboveThreshold,
             msg.value
         );
-        decreaseOrdersIndex[_account] = _orderIndex.add(1);
+        decreaseOrdersIndex[_account] = _orderIndex + 1;
         decreaseOrders[_account][_orderIndex] = order;
 
         emit CreateDecreaseOrder(
