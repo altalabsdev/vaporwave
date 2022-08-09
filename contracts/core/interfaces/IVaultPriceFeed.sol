@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// Interface for the VaultPriceFeed
+/// @title Vaporwave Vault Price Feed Interface
+/// @notice Interface for the VaultPriceFeed
 interface IVaultPriceFeed {
-    function adjustmentBasisPoints(address _token)
-        external
-        view
-        returns (uint256);
-
-    function isAdjustmentAdditive(address _token) external view returns (bool);
-
     function setAdjustment(
         address _token,
         bool _isAdditive,
@@ -22,7 +16,7 @@ interface IVaultPriceFeed {
 
     function setIsSecondaryPriceEnabled(bool _isEnabled) external;
 
-    function setSpreadBasisPoints(address _token, uint256 _spreadBasisPoints)
+    function setSpreadBasisPoints(address _token, uint8 _spreadBasisPoints)
         external;
 
     function setSpreadThresholdBasisPoints(uint256 _spreadThresholdBasisPoints)
@@ -34,6 +28,20 @@ interface IVaultPriceFeed {
 
     function setMaxStrictPriceDeviation(uint256 _maxStrictPriceDeviation)
         external;
+
+    function setTokenConfig(
+        address _token,
+        address _priceFeed,
+        uint256 _priceDecimals,
+        bool _isStrictStable
+    ) external;
+
+    function adjustmentBasisPoints(address _token)
+        external
+        view
+        returns (uint256);
+
+    function isAdjustmentAdditive(address _token) external view returns (bool);
 
     function getPrice(
         address _token,
@@ -48,11 +56,4 @@ interface IVaultPriceFeed {
         external
         view
         returns (uint256);
-
-    function setTokenConfig(
-        address _token,
-        address _priceFeed,
-        uint256 _priceDecimals,
-        bool _isStrictStable
-    ) external;
 }
