@@ -4,11 +4,11 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IRewardTracker.sol";
 import "./interfaces/IVester.sol";
 import "../tokens/interfaces/IMintable.sol";
-import "../access/Governable.sol";
 
 /// Sender is not a handler
 error InvalidHandler();
@@ -24,50 +24,72 @@ error MaxAmountExceeded();
 error CannotTransfer();
 
 /// @title Vaporwave Vester
-contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
+contract Vester is IVester, IERC20, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
-    string public name;
-    string public symbol;
-    uint8 public decimals = 18;
-
-    uint256 public vestingDuration;
-
+    /// The vesting duration in seconds
+    uint256 public immutable vestingDuration;
     /// The escrow token address
     address public immutable esToken;
     /// The pair token address
     address public immutable pairToken;
     /// The claimable (base) token
     address public immutable claimableToken;
-
     /// Reward Tracker address (staked token)
     address public immutable override rewardTracker;
 
+    /// The token name
+    string public name;
+    /// The token symbol
+    string public symbol;
+
     /// Token total supply
     uint256 public override totalSupply;
+    /// Pair supply
     uint256 public pairSupply;
 
+    /// True if there is a max vestable amount
     bool public hasMaxVestableAmount;
 
     /// Mapping of users to their token balances
     mapping(address => uint256) public balances;
+    /// Mapping of user pair amounts
     mapping(address => uint256) public override pairAmounts;
+    /// Mapping of user cumulative claim amounts
     mapping(address => uint256) public override cumulativeClaimAmounts;
+    /// Mapping of user claimed amounts
     mapping(address => uint256) public override claimedAmounts;
-    /// Mapping of users to their last vesting time
+    /// Mapping of user last vesting time
     mapping(address => uint256) public lastVestingTimes;
-
+    /// Mapping of user transferred average staked amounts
     mapping(address => uint256) public override transferredAverageStakedAmounts;
+    /// Mapping of user transferred cumulative rewards
     mapping(address => uint256) public override transferredCumulativeRewards;
+    /// Mapping of user cumulative reward deductions
     mapping(address => uint256) public override cumulativeRewardDeductions;
+    /// Mapping of user bonus rewards
     mapping(address => uint256) public override bonusRewards;
 
-    /// Mapping of handlers
+    /// Mapping of valid handlers
     mapping(address => bool) public isHandler;
 
+    /// @notice Emitted when tokens are claimed
+    /// @param receiver The receiver of the tokens
+    /// @param amount The amount of tokens claimed
     event Claim(address receiver, uint256 amount);
+    /// @notice Emitted when tokens are deposited
+    /// @param account The account that is depositing the tokens
+    /// @param amount The amount of tokens deposited
     event Deposit(address account, uint256 amount);
+    /// @notice Emitted when tokens are withdrawn
+    /// @param account The account that is withdrawing the tokens
+    /// @param claimedAmount The amount of tokens claimed with the withdrawal
+    /// @param balance The amount of tokens remaining in the account
     event Withdraw(address account, uint256 claimedAmount, uint256 balance);
+    /// @notice Emitted when the pair token is transferred
+    /// @param from The sender of the tokens
+    /// @param to The recipient of the tokens
+    /// @param value The amount of tokens transferred
     event PairTransfer(address indexed from, address indexed to, uint256 value);
 
     constructor(
@@ -98,7 +120,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
     /// @notice Set `handler` as a handler: `_isActive`
     /// @param _handler The handler address
     /// @param _isActive True if the handler is active, false otherwise
-    function setHandler(address _handler, bool _isActive) external onlyGov {
+    function setHandler(address _handler, bool _isActive) external onlyOwner {
         isHandler[_handler] = _isActive;
     }
 
@@ -106,7 +128,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
     /// @param _hasMaxVestableAmount True if the contract has a max vestable amount, false otherwise
     function setHasMaxVestableAmount(bool _hasMaxVestableAmount)
         external
-        onlyGov
+        onlyOwner
     {
         hasMaxVestableAmount = _hasMaxVestableAmount;
     }
@@ -151,7 +173,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
         address _token,
         address _account,
         uint256 _amount
-    ) external onlyGov {
+    ) external onlyOwner {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
@@ -260,6 +282,12 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
     {
         _validateHandler();
         bonusRewards[_account] = _amount;
+    }
+
+    /// @notice Get the token decimals (18)
+    /// @return The token decimals (18)
+    function decimals() external pure returns (uint8) {
+        return 18;
     }
 
     /// @notice Get the claimable amount for `_account`
@@ -463,8 +491,8 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
             revert InvalidMintAddress();
         }
 
-        pairSupply = pairSupply + _amount;
-        pairAmounts[_account] = pairAmounts[_account] + _amount;
+        pairSupply += _amount;
+        pairAmounts[_account] += _amount;
 
         emit PairTransfer(address(0), _account, _amount);
     }
@@ -547,6 +575,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
     /// @dev Burns the same amount of esToken from this contract
     function _updateVesting(address _account) private {
         uint256 amount = _getNextClaimableAmount(_account);
+        // solhint-disable-next-line not-rely-on-time
         lastVestingTimes[_account] = block.timestamp;
 
         if (amount == 0) {
@@ -555,9 +584,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
 
         // transfer claimableAmount from balances to cumulativeClaimAmounts
         _burn(_account, amount);
-        cumulativeClaimAmounts[_account] =
-            cumulativeClaimAmounts[_account] +
-            amount;
+        cumulativeClaimAmounts[_account] += amount;
 
         IMintable(esToken).burn(address(this), amount);
     }
@@ -579,6 +606,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
         view
         returns (uint256)
     {
+        // solhint-disable-next-line not-rely-on-time
         uint256 timeDiff = block.timestamp - lastVestingTimes[_account];
 
         uint256 balance = balances[_account];
