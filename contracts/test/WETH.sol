@@ -47,13 +47,13 @@ contract WETH is IERC20 {
      * construction.
      */
     constructor(
-        string memory name,
-        string memory symbol,
-        uint8 decimals
+        string memory xName,
+        string memory xSymbol,
+        uint8 xDecimals
     ) {
-        _name = name;
-        _symbol = symbol;
-        _decimals = decimals;
+        _name = xName;
+        _symbol = xSymbol;
+        _decimals = xDecimals;
     }
 
     function deposit() public payable {
