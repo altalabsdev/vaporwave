@@ -302,6 +302,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
                     if (!_wasCancelled) {
                         break;
                     }
+                    // solhint-disable-next-line no-empty-blocks
                 } catch {}
             }
 
@@ -353,6 +354,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
                     if (!_wasCancelled) {
                         break;
                     }
+                    // solhint-disable-next-line no-empty-blocks
                 } catch {}
             }
 
@@ -616,6 +618,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             request.acceptablePrice,
             request.executionFee,
             block.number - request.blockNumber,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp - request.blockTime
         );
 
@@ -672,6 +675,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             request.acceptablePrice,
             request.executionFee,
             block.number - request.blockNumber,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp - request.blockTime
         );
 
@@ -742,6 +746,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             request.minOut,
             request.executionFee,
             block.number - request.blockNumber,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp - request.blockTime
         );
 
@@ -787,6 +792,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             request.minOut,
             request.executionFee,
             block.number - request.blockNumber,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp - request.blockTime
         );
 
@@ -837,64 +843,6 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         }
     }
 
-    function _validateExecution(
-        uint256 _positionBlockNumber,
-        uint256 _positionBlockTime,
-        address _account
-    ) internal view returns (bool) {
-        if (_positionBlockTime + maxTimeDelay <= block.timestamp) {
-            revert RequestExpired();
-        }
-
-        bool isKeeperCall = msg.sender == address(this) ||
-            isPositionKeeper[msg.sender];
-
-        if (!isLeverageEnabled && !isKeeperCall) {
-            revert Forbidden();
-        }
-
-        if (isKeeperCall) {
-            return _positionBlockNumber + minBlockDelayKeeper <= block.number;
-        }
-
-        if (msg.sender != _account) {
-            revert Forbidden();
-        }
-
-        if (_positionBlockTime + minTimeDelayPublic > block.timestamp) {
-            revert DelayNotPassed();
-        }
-
-        return true;
-    }
-
-    function _validateCancellation(
-        uint256 _positionBlockNumber,
-        uint256 _positionBlockTime,
-        address _account
-    ) internal view returns (bool) {
-        bool isKeeperCall = msg.sender == address(this) ||
-            isPositionKeeper[msg.sender];
-
-        if (!isLeverageEnabled && !isKeeperCall) {
-            revert Forbidden();
-        }
-
-        if (isKeeperCall) {
-            return _positionBlockNumber + minBlockDelayKeeper <= block.number;
-        }
-
-        if (msg.sender != _account) {
-            revert Forbidden();
-        }
-
-        if (_positionBlockTime + minTimeDelayPublic > block.timestamp) {
-            revert DelayNotPassed();
-        }
-
-        return true;
-    }
-
     function _createIncreasePosition(
         address _account,
         address[] memory _path,
@@ -921,6 +869,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             _acceptablePrice,
             _executionFee,
             block.number,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp,
             _hasCollateralInETH
         );
@@ -942,6 +891,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             _executionFee,
             index,
             block.number,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp,
             tx.gasprice
         );
@@ -975,6 +925,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             _minOut,
             _executionFee,
             block.number,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp,
             _withdrawETH
         );
@@ -997,7 +948,69 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
             _executionFee,
             index,
             block.number,
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp
         );
+    }
+
+    function _validateExecution(
+        uint256 _positionBlockNumber,
+        uint256 _positionBlockTime,
+        address _account
+    ) internal view returns (bool) {
+        // solhint-disable-next-line not-rely-on-time
+        if (_positionBlockTime + maxTimeDelay <= block.timestamp) {
+            revert RequestExpired();
+        }
+
+        bool isKeeperCall = msg.sender == address(this) ||
+            isPositionKeeper[msg.sender];
+
+        if (!isLeverageEnabled && !isKeeperCall) {
+            revert Forbidden();
+        }
+
+        if (isKeeperCall) {
+            return _positionBlockNumber + minBlockDelayKeeper <= block.number;
+        }
+
+        if (msg.sender != _account) {
+            revert Forbidden();
+        }
+
+        // solhint-disable-next-line not-rely-on-time
+        if (_positionBlockTime + minTimeDelayPublic > block.timestamp) {
+            revert DelayNotPassed();
+        }
+
+        return true;
+    }
+
+    function _validateCancellation(
+        uint256 _positionBlockNumber,
+        uint256 _positionBlockTime,
+        address _account
+    ) internal view returns (bool) {
+        bool isKeeperCall = msg.sender == address(this) ||
+            isPositionKeeper[msg.sender];
+
+        if (!isLeverageEnabled && !isKeeperCall) {
+            revert Forbidden();
+        }
+
+        if (isKeeperCall) {
+            return _positionBlockNumber + minBlockDelayKeeper <= block.number;
+        }
+
+        if (msg.sender != _account) {
+            revert Forbidden();
+        }
+
+        // solhint-disable-next-line not-rely-on-time
+        if (_positionBlockTime + minTimeDelayPublic > block.timestamp) {
+            revert DelayNotPassed();
+        }
+
+        return true;
     }
 }
