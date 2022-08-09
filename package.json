@@ -21,14 +21,16 @@
   },
   "keywords": [
     "blockchain",
-    "web3",
+    "ethereum",
     "hardhat",
-    "alta",
+    "smart-contracts",
     "solidity",
+    "web3",
+    "alta",
     "aurora",
-    "ethereum"
+    "EVM"
   ],
-  "author": "Alta Web3 Labs",
+  "author": "Alta Web3 Labs (sonofmosiah.eth)",
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^1.0.2",
