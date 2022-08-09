@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IFastPriceEvents.sol";
-import "../access/Governable.sol";
 
 /// @title Vaporwave Fast Price Events Oracle
-contract FastPriceEvents is IFastPriceEvents, Governable {
+contract FastPriceEvents is IFastPriceEvents, Ownable {
     mapping(address => bool) public isPriceFeed;
     event PriceUpdate(address token, uint256 price, address priceFeed);
 
@@ -16,7 +15,7 @@ contract FastPriceEvents is IFastPriceEvents, Governable {
     /// @param _isPriceFeed True if the address is a price feed, false otherwise
     function setIsPriceFeed(address _priceFeed, bool _isPriceFeed)
         external
-        onlyGov
+        onlyOwner
     {
         isPriceFeed[_priceFeed] = _isPriceFeed;
     }
