@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { deployContract } from "../../shared/fixtures";
+import log from "ololog";
 import { time, mine } from "@nomicfoundation/hardhat-network-helpers";
 import { expandDecimals, reportGasUsed } from "../../shared/utilities";
 import { toChainlinkPrice } from "../../shared/chainlink";
@@ -15,7 +16,7 @@ import {
 } from "./helpers";
 
 describe("Vault.averagePrice", function () {
-  let wallet: any, user0: any, user1: any, user2: any, user3: any;
+  let user0: any, user1: any, user2: any;
   let vault: any;
   let vaultPriceFeed: any;
   let usdv: any;
@@ -35,7 +36,7 @@ describe("Vault.averagePrice", function () {
   let vlp: any;
 
   before(async () => {
-    [wallet, user0, user1, user2, user3] = await ethers.getSigners();
+    [user0, user1, user2] = await ethers.getSigners();
   });
 
   beforeEach(async () => {
@@ -51,6 +52,8 @@ describe("Vault.averagePrice", function () {
     dai = await deployContract("Token", []);
     daiPriceFeed = await deployContract("PriceFeed", []);
 
+    log.yellow("after tokens");
+
     vault = await deployContract("Vault", []);
     usdv = await deployContract("USDV", [vault.address]);
     router = await deployContract("Router", [
@@ -60,15 +63,13 @@ describe("Vault.averagePrice", function () {
     ]);
     vaultPriceFeed = await deployContract("VaultPriceFeed", []);
 
-    const initVaultResult = await initVault(
-      vault,
-      router,
-      usdv,
-      vaultPriceFeed
-    );
+    await initVault(vault, router, usdv, vaultPriceFeed);
+
+    log.yellow("after initVault");
 
     distributor0 = await deployContract("TimeDistributor", []);
     yieldTracker0 = await deployContract("YieldTracker", [usdv.address]);
+    log.yellow("after trackers");
 
     await yieldTracker0.setDistributor(distributor0.address);
     await distributor0.setDistribution(
@@ -76,6 +77,8 @@ describe("Vault.averagePrice", function () {
       [1000],
       [bnb.address]
     );
+
+    log.yellow("after setDistributor");
 
     await bnb.mint(distributor0.address, 5000);
     await usdv.setYieldTrackers([yieldTracker0.address]);
@@ -104,6 +107,7 @@ describe("Vault.averagePrice", function () {
       8,
       false
     );
+    log.yellow("after setTokenConfigs");
 
     await vault.setFees(
       50, // _taxBasisPoints
@@ -152,7 +156,7 @@ describe("Vault.averagePrice", function () {
           toUsd(110),
           true
         )
-    ).to.be.revertedWith("Vault: reserve exceeds pool");
+    ).to.be.revertedWithCustomError(vault, "InsufficientPoolAmount");
 
     await vault
       .connect(user0)
@@ -319,7 +323,7 @@ describe("Vault.averagePrice", function () {
           toUsd(110),
           true
         )
-    ).to.be.revertedWith("Vault: reserve exceeds pool");
+    ).to.be.revertedWithCustomError(vault, "InsufficientPoolAmount");
 
     expect(await vlpManager.getAumInUsdv(false)).eq("99700000000000000000"); // 99.7
     expect(await vlpManager.getAumInUsdv(true)).eq("102192500000000000000"); // 102.1925
@@ -492,7 +496,7 @@ describe("Vault.averagePrice", function () {
           toUsd(110),
           true
         )
-    ).to.be.revertedWith("Vault: reserve exceeds pool");
+    ).to.be.revertedWithCustomError(vault, "InsufficientPoolAmount");
 
     await vault
       .connect(user0)
