@@ -56,11 +56,11 @@ contract WETH is IERC20 {
         _decimals = xDecimals;
     }
 
-    function deposit() public payable {
+    function deposit() external payable {
         _balances[msg.sender] += msg.value;
     }
 
-    function withdraw(uint256 amount) public {
+    function withdraw(uint256 amount) external {
         require(_balances[msg.sender] >= amount);
         _balances[msg.sender] -= amount;
         payable(msg.sender).transfer(amount);
@@ -69,7 +69,7 @@ contract WETH is IERC20 {
     /**
      * @dev Returns the name of the token.
      */
-    function name() public view returns (string memory) {
+    function name() external view returns (string memory) {
         return _name;
     }
 
@@ -77,7 +77,7 @@ contract WETH is IERC20 {
      * @dev Returns the symbol of the token, usually a shorter version of the
      * name.
      */
-    function symbol() public view returns (string memory) {
+    function symbol() external view returns (string memory) {
         return _symbol;
     }
 
@@ -94,21 +94,26 @@ contract WETH is IERC20 {
      * no way affects any of the arithmetic of the contract, including
      * {IERC20-balanceOf} and {IERC20-transfer}.
      */
-    function decimals() public view returns (uint8) {
+    function decimals() external view returns (uint8) {
         return _decimals;
     }
 
     /**
      * @dev See {IERC20-totalSupply}.
      */
-    function totalSupply() public view override returns (uint256) {
+    function totalSupply() external view override returns (uint256) {
         return _totalSupply;
     }
 
     /**
      * @dev See {IERC20-balanceOf}.
      */
-    function balanceOf(address account) public view override returns (uint256) {
+    function balanceOf(address account)
+        external
+        view
+        override
+        returns (uint256)
+    {
         return _balances[account];
     }
 
@@ -121,7 +126,7 @@ contract WETH is IERC20 {
      * - the caller must have a balance of at least `amount`.
      */
     function transfer(address recipient, uint256 amount)
-        public
+        external
         virtual
         override
         returns (bool)
@@ -134,7 +139,7 @@ contract WETH is IERC20 {
      * @dev See {IERC20-allowance}.
      */
     function allowance(address owner, address spender)
-        public
+        external
         view
         virtual
         override
@@ -151,7 +156,7 @@ contract WETH is IERC20 {
      * - `spender` cannot be the zero address.
      */
     function approve(address spender, uint256 amount)
-        public
+        external
         virtual
         override
         returns (bool)
@@ -177,7 +182,7 @@ contract WETH is IERC20 {
         address sender,
         address recipient,
         uint256 amount
-    ) public virtual override returns (bool) {
+    ) external virtual override returns (bool) {
         _transfer(sender, recipient, amount);
         _approve(
             sender,
@@ -200,7 +205,7 @@ contract WETH is IERC20 {
      * - `spender` cannot be the zero address.
      */
     function increaseAllowance(address spender, uint256 addedValue)
-        public
+        external
         virtual
         returns (bool)
     {
@@ -227,7 +232,7 @@ contract WETH is IERC20 {
      * `subtractedValue`.
      */
     function decreaseAllowance(address spender, uint256 subtractedValue)
-        public
+        external
         virtual
         returns (bool)
     {

@@ -70,14 +70,20 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
     uint256 public increasePositionRequestKeysStart;
     uint256 public decreasePositionRequestKeysStart;
 
+    /// Mapping of position keepers
     mapping(address => bool) public isPositionKeeper;
 
+    /// Mapping of user increase position index
     mapping(address => uint256) public increasePositionsIndex;
+    /// Mapping of increase position requests
     mapping(bytes32 => IncreasePositionRequest) public increasePositionRequests;
 
+    /// Mapping of user decrease position index
     mapping(address => uint256) public decreasePositionsIndex;
+    /// Mapping of decrease position requests
     mapping(bytes32 => DecreasePositionRequest) public decreasePositionRequests;
 
+    /// @notice Emitted when an increase position is created
     event CreateIncreasePosition(
         address indexed account,
         address[] path,
@@ -94,6 +100,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 gasPrice
     );
 
+    /// @notice Emitted when an increase position is executed
     event ExecuteIncreasePosition(
         address indexed account,
         address[] path,
@@ -108,6 +115,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 timeGap
     );
 
+    /// @notice Emitted when an increase position is cancelled
     event CancelIncreasePosition(
         address indexed account,
         address[] path,
@@ -122,6 +130,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 timeGap
     );
 
+    /// @notice Emitted when a decrease position is created
     event CreateDecreasePosition(
         address indexed account,
         address[] path,
@@ -138,6 +147,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 blockTime
     );
 
+    /// @notice Emitted when a decrease position is executed
     event ExecuteDecreasePosition(
         address indexed account,
         address[] path,
@@ -153,6 +163,7 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 timeGap
     );
 
+    /// @notice Emitted when a decrease position is cancelled
     event CancelDecreasePosition(
         address indexed account,
         address[] path,
@@ -168,14 +179,28 @@ contract PositionRouter is BasePositionManager, IPositionRouter {
         uint256 timeGap
     );
 
+    /// @notice Emitted when a position keeper is updated
+    /// @param account The position keeper address
+    /// @param isActive Whether the position keeper is active
     event SetPositionKeeper(address indexed account, bool isActive);
+    /// @notice Emitted when the minimum execution fee is updated
+    /// @param minExecutionFee The new minimum execution fee
     event SetMinExecutionFee(uint256 minExecutionFee);
+    /// @notice Emitted when the isLeverageEnabled variable is updated
+    /// @param isLeverageEnabled Whether leverage is enabled or not
     event SetIsLeverageEnabled(bool isLeverageEnabled);
+    /// @notice Emitted when the delay values are updated
+    /// @param minBlockDelayKeeper The new minimum block delay for the keeper
+    /// @param minTimeDelayPublic The new minimum time delay for the public
+    /// @param maxTimeDelay The new maximum time delay
     event SetDelayValues(
         uint256 minBlockDelayKeeper,
         uint256 minTimeDelayPublic,
         uint256 maxTimeDelay
     );
+    /// @notice Emitted when the request keys start values are updated
+    /// @param increasePositionRequestKeysStart The new increase position request keys start
+    /// @param decreasePositionRequestKeysStart The new decrease position request keys start
     event SetRequestKeysStartValues(
         uint256 increasePositionRequestKeysStart,
         uint256 decreasePositionRequestKeysStart

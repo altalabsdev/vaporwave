@@ -3,12 +3,12 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IVault.sol";
 import "./interfaces/IVlpManager.sol";
-import "../tokens/interfaces/IUSDV.sol";
 import "../tokens/interfaces/IMintable.sol";
 
 /// Caller is not a valid handler
@@ -28,15 +28,13 @@ error Cooldown();
 contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
     using SafeERC20 for IERC20;
 
-    uint8 public constant USDV_DECIMALS = 18;
+    uint8 public constant USD_DECIMALS = 30;
     uint32 public constant MAX_COOLDOWN_DURATION = 48 hours; // 172800 seconds
     /// Helper to avoid truncation errors in price calculations
     uint128 public constant PRICE_PRECISION = 1e30;
 
     /// The vault address
     IVault public immutable vault;
-    /// USD Vaporwave token address
-    address public immutable usdv;
     /// VWAVE LP token address
     address public immutable vlp;
 
@@ -56,9 +54,9 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         address account,
         address token,
         uint256 amount,
-        uint256 aumInUsdv,
+        uint256 aumInUsd,
         uint256 vlpSupply,
-        uint256 usdvAmount,
+        uint256 usdAmount,
         uint256 mintAmount
     );
 
@@ -67,21 +65,18 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         address account,
         address token,
         uint256 vlpAmount,
-        uint256 aumInUsdv,
+        uint256 aumInUsd,
         uint256 vlpSupply,
-        uint256 usdvAmount,
+        uint256 usdAmount,
         uint256 amountOut
     );
 
     constructor(
         address _vault,
-        address _usdv,
         address _vlp,
         uint256 _cooldownDuration
     ) {
-        _transferOwnership(msg.sender);
         vault = IVault(_vault);
-        usdv = _usdv;
         vlp = _vlp;
         cooldownDuration = _cooldownDuration;
     }
@@ -109,8 +104,8 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
     }
 
     /// @notice Set the Assets Under Management (AUM) adjustment
-    /// @param _aumAddition AUM addition in USDV
-    /// @param _aumDeduction AUM deduction in USDV
+    /// @param _aumAddition AUM addition
+    /// @param _aumDeduction AUM deduction
     function setAumAdjustment(uint256 _aumAddition, uint256 _aumDeduction)
         external
         onlyOwner
@@ -122,12 +117,12 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
     /// @notice Add liquidity to the VLP
     /// @param _token Address of the token to add liquidity to
     /// @param _amount Amount of tokens to add to the VLP
-    /// @param _minUsdv Minimum amount of USDV to add to the VLP
+    /// @param _minUsd Minimum amount in USD to add to the VLP
     /// @param _minVlp Minimum amount of VLP to add
     function addLiquidity(
         address _token,
         uint256 _amount,
-        uint256 _minUsdv,
+        uint256 _minUsd,
         uint256 _minVlp
     ) external override nonReentrant returns (uint256) {
         if (inPrivateMode) {
@@ -139,7 +134,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
                 msg.sender,
                 _token,
                 _amount,
-                _minUsdv,
+                _minUsd,
                 _minVlp
             );
     }
@@ -149,14 +144,14 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
     /// @param _account Address of the liquidity account
     /// @param _token Address of the token to add liquidity to
     /// @param _amount Amount of tokens to add to the VLP
-    /// @param _minUsdv Minimum amount of USDV to add to the VLP
+    /// @param _minUsd Minimum amount in USD to add to the VLP
     /// @param _minVlp Minimum amount of VLP to add
     function addLiquidityForAccount(
         address _fundingAccount,
         address _account,
         address _token,
         uint256 _amount,
-        uint256 _minUsdv,
+        uint256 _minUsd,
         uint256 _minVlp
     ) external override nonReentrant returns (uint256) {
         _validateHandler();
@@ -166,7 +161,7 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
                 _account,
                 _token,
                 _amount,
-                _minUsdv,
+                _minUsd,
                 _minVlp
             );
     }
@@ -228,66 +223,75 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         return amounts;
     }
 
-    /// @notice Get assets under management (AUM) denominated in USDV
-    /// @param maximise True if the maximum AUM should be returned, false otherwise
-    /// @return AUM in USDV
-    function getAumInUsdv(bool maximise) public view returns (uint256) {
-        uint256 aum = getAum(maximise);
-        return (aum * (10**USDV_DECIMALS)) / (PRICE_PRECISION);
-    }
-
     /// @notice Get Assets Under Management(AUM)
     /// @param maximise True if the maximum AUM should be returned, false otherwise
     /// @return AUM
     function getAum(bool maximise) public view returns (uint256) {
-        uint256 length = vault.allWhitelistedTokensLength();
+        uint256 length = vault.allAllowlistedTokensLength();
         uint256 aum = aumAddition;
-        uint256 shortProfits = 0;
 
         for (uint256 i = 0; i < length; i++) {
-            address token = vault.allWhitelistedTokens(i);
-            bool isWhitelisted = vault.whitelistedTokens(token);
+            address token = vault.allAllowlistedTokens(i);
+            bool isAllowlisted = vault.allowlistedTokens(token);
 
-            if (!isWhitelisted) {
+            if (!isAllowlisted) {
                 continue;
             }
 
-            uint256 price = maximise
-                ? vault.getMaxPrice(token)
-                : vault.getMinPrice(token);
-            uint256 poolAmount = vault.poolAmounts(token);
-            uint256 decimals = vault.tokenDecimals(token);
-
-            if (vault.stableTokens(token)) {
-                aum += ((poolAmount * price) / (10**decimals));
-            } else {
-                // add global short profit / loss
-                uint256 size = vault.globalShortSizes(token);
-                if (size > 0) {
-                    uint256 averagePrice = vault.globalShortAveragePrices(
-                        token
-                    );
-                    uint256 priceDelta = averagePrice > price
-                        ? averagePrice - price
-                        : price - averagePrice;
-                    uint256 delta = (size * priceDelta) / averagePrice;
-                    if (price > averagePrice) {
-                        // add losses from shorts
-                        aum += delta;
-                    } else {
-                        shortProfits += delta;
-                    }
-                }
-
-                aum += vault.guaranteedUsd(token);
-
-                uint256 reservedAmount = vault.reservedAmounts(token);
-                aum += (poolAmount - (reservedAmount * price) / (10**decimals));
-            }
+            uint256 tokenAum = getTokenAum(token, maximise);
+            aum += tokenAum;
         }
 
-        aum = shortProfits > aum ? 0 : aum - shortProfits;
         return aumDeduction > aum ? 0 : aum - aumDeduction;
+    }
+
+    // returns 30 decimals
+    function getTokenAum(address _token, bool _maximise)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        bool isAllowlisted = vault.allowlistedTokens(_token);
+
+        if (!isAllowlisted) {
+            return 0;
+        }
+
+        uint256 price = _maximise
+            ? vault.getMaxPrice(_token)
+            : vault.getMinPrice(_token);
+        uint256 poolAmount = vault.poolAmounts(_token);
+        uint256 decimals = vault.tokenDecimals(_token);
+        uint256 tokenAum;
+        uint256 shortProfits;
+
+        if (vault.stableTokens(_token)) {
+            tokenAum += ((poolAmount * price) / (10**decimals));
+        } else {
+            uint256 size = vault.globalShortSizes(_token);
+            if (size > 0) {
+                uint256 averagePrice = vault.globalShortAveragePrices(_token);
+                uint256 priceDelta = averagePrice > price
+                    ? averagePrice - price
+                    : price - averagePrice;
+                uint256 delta = (size * priceDelta) / averagePrice;
+                if (price > averagePrice) {
+                    tokenAum += delta;
+                } else {
+                    shortProfits += delta;
+                }
+            }
+            tokenAum += vault.guaranteedUsd(_token);
+
+            uint256 reservedAmount = vault.reservedAmounts(_token);
+            tokenAum += (poolAmount -
+                (reservedAmount * price) /
+                (10**decimals));
+        }
+
+        tokenAum = shortProfits > tokenAum ? 0 : tokenAum - shortProfits;
+        return tokenAum;
     }
 
     function _addLiquidity(
@@ -295,15 +299,15 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
         address _account,
         address _token,
         uint256 _amount,
-        uint256 _minUsdv,
+        uint256 _minUsd,
         uint256 _minVlp
     ) private returns (uint256) {
         if (_amount == 0) {
             revert InvalidAmount();
         }
 
-        // calculate aum before buyUSDV
-        uint256 aumInUsdv = getAumInUsdv(true);
+        // calculate aum before buyUSD
+        uint256 aumInUsd = getAum(true);
         uint256 vlpSupply = IERC20(vlp).totalSupply();
 
         IERC20(_token).safeTransferFrom(
@@ -311,14 +315,15 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
             address(vault),
             _amount
         );
-        uint256 usdvAmount = vault.buyUSDV(_token, address(this));
-        if (usdvAmount < _minUsdv) {
+        uint256 usdAmount = vault.buy(_token);
+        if (usdAmount < _minUsd) {
             revert InsufficientOutput();
         }
 
-        uint256 mintAmount = aumInUsdv == 0
-            ? usdvAmount
-            : (usdvAmount * vlpSupply) / aumInUsdv;
+        uint256 decimals = IERC20Metadata(vlp).decimals();
+        uint256 mintAmount = aumInUsd == 0
+            ? (usdAmount * (10**decimals)) / (10**USD_DECIMALS)
+            : (usdAmount * vlpSupply) / aumInUsd;
         if (mintAmount < _minVlp) {
             revert InsufficientOutput();
         }
@@ -331,9 +336,9 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
             _account,
             _token,
             _amount,
-            aumInUsdv,
+            aumInUsd,
             vlpSupply,
-            usdvAmount,
+            usdAmount,
             mintAmount
         );
 
@@ -355,20 +360,15 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
             revert Cooldown();
         }
 
-        // calculate aum before sellUSDV
-        uint256 aumInUsdv = getAumInUsdv(false);
+        // calculate aum before sell
+        uint256 aumInUsd = getAum(false);
         uint256 vlpSupply = IERC20(vlp).totalSupply();
 
-        uint256 usdvAmount = (_vlpAmount * aumInUsdv) / vlpSupply;
-        uint256 usdvBalance = IERC20(usdv).balanceOf(address(this));
-        if (usdvAmount > usdvBalance) {
-            IUSDV(usdv).mint(address(this), usdvAmount - usdvBalance);
-        }
+        uint256 usdAmount = (_vlpAmount * aumInUsd) / vlpSupply;
 
         IMintable(vlp).burn(_account, _vlpAmount);
 
-        IERC20(usdv).transfer(address(vault), usdvAmount);
-        uint256 amountOut = vault.sellUSDV(_tokenOut, _receiver);
+        uint256 amountOut = vault.sell(_tokenOut, _receiver, usdAmount);
         if (amountOut < _minOut) {
             revert InsufficientOutput();
         }
@@ -377,9 +377,9 @@ contract VlpManager is ReentrancyGuard, Ownable, IVlpManager {
             _account,
             _tokenOut,
             _vlpAmount,
-            aumInUsdv,
+            aumInUsd,
             vlpSupply,
-            usdvAmount,
+            usdAmount,
             amountOut
         );
 

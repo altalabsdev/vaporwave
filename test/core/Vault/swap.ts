@@ -103,7 +103,7 @@ describe("Vault.swap", function () {
   it("swap", async () => {
     await expect(
       vault.connect(user1).swap(bnb.address, btc.address, user2.address)
-    ).to.be.revertedWith("Vault: _tokenIn not whitelisted");
+    ).to.be.revertedWith("Vault: _tokenIn not allowlisted");
 
     await vault.setIsSwapEnabled(false);
 
@@ -118,7 +118,7 @@ describe("Vault.swap", function () {
 
     await expect(
       vault.connect(user1).swap(bnb.address, btc.address, user2.address)
-    ).to.be.revertedWith("Vault: _tokenOut not whitelisted");
+    ).to.be.revertedWith("Vault: _tokenOut not allowlisted");
 
     await expect(
       vault.connect(user1).swap(bnb.address, bnb.address, user2.address)

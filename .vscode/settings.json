@@ -1,0 +1,9 @@
+{
+  "cSpell.words": ["vwave"],
+  "solidity-va.hover": true,
+  "solidity-va.diagnostics.cdili_json.import": true,
+  "solidity-va.tools.surya.option.negModifiers": true,
+  "solidity-va.preview.markdown": true,
+  "solidity-va.uml.actors.enable": true,
+  "solidity-va.debug.parser.showExceptions": true
+}

@@ -290,7 +290,7 @@ describe("VlpManager", function () {
 
     await expect(
       vlp.connect(user1).transfer(user2.address, expandDecimals(1, 18))
-    ).to.be.revertedWith("BaseToken: msg.sender not whitelisted");
+    ).to.be.revertedWith("BaseToken: msg.sender not allowlisted");
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(400));
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(400));

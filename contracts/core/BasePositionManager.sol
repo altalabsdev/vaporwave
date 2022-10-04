@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../tokens/interfaces/IWETH.sol";
@@ -40,20 +41,32 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
     /// Helper used to avoid truncation errors in basis points calculations
     uint16 public constant BASIS_POINTS_DIVISOR = 10000;
 
-    /// The admin address
+    /// @notice Returns the address of admin
+    /// @return The admin address
     address public admin;
-    /// The vault address
+
+    /// @notice Returns the address of the vault
+    /// @return The vault address
     address public vault;
-    /// The router address
+
+    /// @notice Returns the address of router
+    /// @return The router address
     address public router;
-    /// Wrapped Ether (WETH) token address
+
+    /// @notice Returns the WETH token contract address
+    /// @return Wrapped Ether (WETH) token address
     address public weth;
 
-    // to prevent using the deposit and withdrawal of collateral as a zero fee swap,
-    // there is a small depositFee charged if a collateral deposit results in the decrease
-    // of leverage for an existing position
-    // increasePositionBufferBps allows for a small amount of decrease of leverage
+    /// @notice Returns the deposit fee
+    /// @dev to prevent using the deposit and withdrawal of collateral as a zero fee swap,
+    /// there is a small depositFee charged if a collateral deposit results in the decrease
+    /// of leverage for an existing position
+    /// increasePositionBufferBps allows for a small amount of decrease of leverage
+    /// @return The deposit fee
     uint256 public depositFee;
+
+    /// @notice Returns the increase position buffer bps (100)
+    /// @return 100
     uint256 public increasePositionBufferBps = 100;
 
     /// The referral storage address
@@ -61,54 +74,14 @@ contract BasePositionManager is IBasePositionManager, ReentrancyGuard, Ownable {
 
     /// Mapping of token fee reserves
     mapping(address => uint256) public feeReserves;
-    /// Mapping of token max global long sizes
-    mapping(address => uint256) public override maxGlobalLongSizes;
-    /// Mapping of token max global short sizes
-    mapping(address => uint256) public override maxGlobalShortSizes;
 
-    /// @notice Emitted when the deposit fee is set
-    /// @param depositFee The new deposit fee
-    event SetDepositFee(uint256 depositFee);
-    /// @notice Emitted when the increase position buffer basis points are set
-    /// @param increasePositionBufferBps The new increase position buffer basis points
-    event SetIncreasePositionBufferBps(uint256 increasePositionBufferBps);
-    /// @notice Emitted when the referral storage address is set
-    /// @param referralStorage The new referral storage address
-    event SetReferralStorage(address referralStorage);
-    /// @notice Emitted when the admin address is set
-    /// @param admin The new admin address
-    event SetAdmin(address admin);
-    /// @notice Emitted when fees are withdrawn
-    /// @param token The token withdrawn
-    /// @param receiver The receiver of the funds
-    /// @param amount The amount withdrawn
-    event WithdrawFees(address token, address receiver, uint256 amount);
+    /// @notice Mapping of max global long sizes by token
+    /// @return The max global long size for a token
+    mapping(address => uint256) public maxGlobalLongSizes;
 
-    /// @notice Emitted when the max global long and short sizes are set
-    /// @param tokens The array of tokens
-    /// @param longSizes The array of max long sizes
-    /// @param shortSizes The array of max short sizes
-    event SetMaxGlobalSizes(
-        address[] tokens,
-        uint256[] longSizes,
-        uint256[] shortSizes
-    );
-
-    event IncreasePositionReferral(
-        address account,
-        uint256 sizeDelta,
-        uint256 marginFeeBasisPoints,
-        bytes32 referralCode,
-        address referrer
-    );
-
-    event DecreasePositionReferral(
-        address account,
-        uint256 sizeDelta,
-        uint256 marginFeeBasisPoints,
-        bytes32 referralCode,
-        address referrer
-    );
+    /// @notice Mapping of max global short sizes by token
+    /// @return The max global short size for a token
+    mapping(address => uint256) public maxGlobalShortSizes;
 
     modifier onlyAdmin() {
         if (msg.sender != admin) {

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 import "./interfaces/ISecondaryPriceFeed.sol";
 import "./interfaces/IFastPriceFeed.sol";
@@ -27,10 +26,6 @@ error AlreadyInitialized();
 // TODO finish NatSpec
 /// @title Vaporwave Fast Price Feed
 contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
-    using Counters for Counters.Counter;
-
-    uint32 public constant PRICE_BITMASK = type(uint32).max; // 4294967295
-
     /// The max price duration is 30 minutes (1800 seconds)
     uint16 public constant MAX_PRICE_DURATION = 30 minutes;
     /// Helper to avoid truncation errors in basis points calculations
@@ -69,7 +64,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
     /// The minimum authorizations to disable the fast price feed
     uint256 public minAuthorizations;
     /// The disable fast price vote counter
-    Counters.Counter private _disableFastPriceVoteCount;
+    uint256 public disableFastPriceVoteCount;
 
     /// Mapping of token prices
     mapping(address => uint256) public prices;
@@ -95,6 +90,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
     /// @param signer The address of the signer
     event EnableFastPrice(address signer);
 
+    /// Modified function can only be called by a valid signer
     modifier onlySigner() {
         if (!isSigner[msg.sender]) {
             revert Forbidden();
@@ -102,6 +98,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         _;
     }
 
+    /// Modified functions can only be called by a valid updater
     modifier onlyUpdater() {
         if (!isUpdater[msg.sender]) {
             revert Forbidden();
@@ -109,6 +106,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         _;
     }
 
+    /// Modified functions can only be called by the token manager
     modifier onlyTokenManager() {
         if (msg.sender != tokenManager) {
             revert Forbidden();
@@ -135,10 +133,15 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         positionRouter = _positionRouter;
     }
 
+    /// @notice Set the token manager to `_tokenManager`
+    /// @param _tokenManager The new token manager address
     function setTokenManager(address _tokenManager) external onlyOwner {
         tokenManager = _tokenManager;
     }
 
+    /// @notice Set `_account` as a signer: `_isActive`
+    /// @param _account The address of the signer
+    /// @param _isActive True if the signer is active, false otherwise
     function setSigner(address _account, bool _isActive)
         external
         override
@@ -147,14 +150,22 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         isSigner[_account] = _isActive;
     }
 
+    /// @notice Set `_account` as an updater: `_isActive`
+    /// @param _account The address of the updater
+    /// @param _isActive True if the updater is active, false otherwise
     function setUpdater(address _account, bool _isActive) external onlyOwner {
         isUpdater[_account] = _isActive;
     }
 
+    /// @notice Set the fast price events address to `_fastPriceEvents`
+    /// @param _fastPriceEvents The new fast price events address
     function setFastPriceEvents(address _fastPriceEvents) external onlyOwner {
         fastPriceEvents = _fastPriceEvents;
     }
 
+    /// @notice Set the price duration to `_priceDuration`
+    /// @dev The price duration must be less than or equal to the max price duration
+    /// @param _priceDuration The new price duration
     function setPriceDuration(uint256 _priceDuration) external onlyOwner {
         if (_priceDuration > MAX_PRICE_DURATION) {
             revert InvalidPriceDuration();
@@ -162,10 +173,14 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         priceDuration = _priceDuration;
     }
 
+    /// @notice Set the minimum block interval to `_minBlockInterval`
+    /// @param _minBlockInterval The new minimum block interval
     function setMinBlockInterval(uint256 _minBlockInterval) external onlyOwner {
         minBlockInterval = _minBlockInterval;
     }
 
+    /// @notice Set the isSpreadEnabled variable to `_isSpreadEnabled`
+    /// @param _isSpreadEnabled True if the spread is enabled, false otherwise
     function setIsSpreadEnabled(bool _isSpreadEnabled)
         external
         override
@@ -174,18 +189,26 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         isSpreadEnabled = _isSpreadEnabled;
     }
 
+    /// @notice Set the max time deviation from the block timestamp to `_maxTimeDeviation`
+    /// @param _maxTimeDeviation The new max time deviation
     function setMaxTimeDeviation(uint256 _maxTimeDeviation) external onlyOwner {
         maxTimeDeviation = _maxTimeDeviation;
     }
 
+    /// @notice Set the lastUpdatedAt variable to `_lastUpdatedAt`
+    /// @param _lastUpdatedAt The new lastUpdatedAt value
     function setLastUpdatedAt(uint256 _lastUpdatedAt) external onlyOwner {
         lastUpdatedAt = _lastUpdatedAt;
     }
 
+    /// @notice Set the volatility basis points to `_volBasisPoints`
+    /// @param _volBasisPoints The new volatility basis points
     function setVolBasisPoints(uint256 _volBasisPoints) external onlyOwner {
         volBasisPoints = _volBasisPoints;
     }
 
+    /// @notice Set the max deviation from the primary price to `_maxDeviationBasisPoints`
+    /// @param _maxDeviationBasisPoints The new max deviation from the primary price
     function setMaxDeviationBasisPoints(uint256 _maxDeviationBasisPoints)
         external
         onlyOwner
@@ -193,6 +216,8 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         maxDeviationBasisPoints = _maxDeviationBasisPoints;
     }
 
+    /// @notice Set the minimum authorizations to disable the fast price to `_minAuthorizations`
+    /// @param _minAuthorizations The new minimum authorizations
     function setMinAuthorizations(uint256 _minAuthorizations)
         external
         onlyTokenManager
@@ -200,6 +225,9 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         minAuthorizations = _minAuthorizations;
     }
 
+    /// @notice Set the tokens and tokenPrecisions arrays
+    /// @param _tokens The new tokens array
+    /// @param _tokenPrecisions The new tokenPrecisions array
     function setTokens(
         address[] memory _tokens,
         uint256[] memory _tokenPrecisions
@@ -211,6 +239,10 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         tokenPrecisions = _tokenPrecisions;
     }
 
+    /// @notice Set the token prices
+    /// @param _tokens The array of tokens
+    /// @param _prices The array of prices
+    /// @param _timestamp The timestamp of the prices
     function setPrices(
         address[] memory _tokens,
         uint256[] memory _prices,
@@ -229,6 +261,9 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         }
     }
 
+    /// @notice Set the compacted prices
+    /// @param _priceBitArray The new compacted prices array
+    /// @param _timestamp The timestamp of the prices
     function setCompactedPrices(
         uint256[] memory _priceBitArray,
         uint256 _timestamp
@@ -248,7 +283,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
                     }
 
                     uint256 startBit = 32 * j;
-                    uint256 price = (priceBits >> startBit) & PRICE_BITMASK;
+                    uint256 price = (priceBits >> startBit) & type(uint32).max;
 
                     address token = tokens[i * 8 + j];
                     uint256 tokenPrecision = tokenPrecisions[i * 8 + j];
@@ -262,6 +297,9 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         }
     }
 
+    /// @notice Set the prices with bits
+    /// @param _priceBits The price bits
+    /// @param _timestamp The timestamp of the update
     function setPricesWithBits(uint256 _priceBits, uint256 _timestamp)
         external
         onlyUpdater
@@ -269,6 +307,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         _setPricesWithBits(_priceBits, _timestamp);
     }
 
+    /// @notice Set
     function setPricesWithBitsAndExecute(
         uint256 _priceBits,
         uint256 _timestamp,
@@ -293,7 +332,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
             revert AlreadyVoted();
         }
         disableFastPriceVotes[msg.sender] = true;
-        _disableFastPriceVoteCount.increment();
+        disableFastPriceVoteCount++;
 
         emit DisableFastPrice(msg.sender);
     }
@@ -303,7 +342,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
             revert AlreadyVoted();
         }
         disableFastPriceVotes[msg.sender] = false;
-        _disableFastPriceVoteCount.decrement();
+        disableFastPriceVoteCount--;
 
         emit EnableFastPrice(msg.sender);
     }
@@ -368,10 +407,6 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
         return fastPrice < minPrice ? minPrice : fastPrice;
     }
 
-    function disableFastPriceVoteCount() external view returns (uint256) {
-        return _disableFastPriceVoteCount.current();
-    }
-
     function initialize(
         uint256 _minAuthorizations,
         address[] memory _signers,
@@ -400,7 +435,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
             return false;
         }
 
-        if (_disableFastPriceVoteCount.current() >= minAuthorizations) {
+        if (disableFastPriceVoteCount >= minAuthorizations) {
             return false;
         }
 
@@ -422,7 +457,7 @@ contract FastPriceFeed is ISecondaryPriceFeed, IFastPriceFeed, Ownable {
                 }
 
                 uint256 startBit = 32 * j;
-                uint256 price = (_priceBits >> startBit) & PRICE_BITMASK;
+                uint256 price = (_priceBits >> startBit) & type(uint32).max;
 
                 address token = tokens[j];
                 uint256 tokenPrecision = tokenPrecisions[j];

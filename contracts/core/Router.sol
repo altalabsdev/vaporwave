@@ -32,8 +32,6 @@ contract Router is Ownable, IRouter {
 
     /// Wrapped Ether (WETH) token
     address public weth; // wrapped ETH
-    /// USD Vaporwave token
-    address public usdv;
     /// Vault address
     address public vault;
 
@@ -50,13 +48,8 @@ contract Router is Ownable, IRouter {
         uint256 amountOut
     );
 
-    constructor(
-        address _vault,
-        address _usdv,
-        address _weth
-    ) {
+    constructor(address _vault, address _weth) {
         vault = _vault;
-        usdv = _usdv;
         weth = _weth;
     }
 
@@ -520,18 +513,7 @@ contract Router is Ownable, IRouter {
         uint256 _minOut,
         address _receiver
     ) private returns (uint256) {
-        uint256 amountOut;
-
-        if (_tokenOut == usdv) {
-            // buyUSDV
-            amountOut = IVault(vault).buyUSDV(_tokenIn, _receiver);
-        } else if (_tokenIn == usdv) {
-            // sellUSDV
-            amountOut = IVault(vault).sellUSDV(_tokenOut, _receiver);
-        } else {
-            // swap
-            amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
-        }
+        uint256 amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
 
         if (amountOut < _minOut) {
             revert InsufficientAmountOut();

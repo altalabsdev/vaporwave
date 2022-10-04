@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// Interface for the VlpManager
+/// Interface for the VLP Manager
 interface IVlpManager {
     function cooldownDuration() external returns (uint256);
 
@@ -37,4 +37,11 @@ interface IVlpManager {
         uint256 _minOut,
         address _receiver
     ) external returns (uint256);
+
+    function getAum(bool maximise) external view returns (uint256);
+
+    function getTokenAum(address _token, bool maximise)
+        external
+        view
+        returns (uint256);
 }

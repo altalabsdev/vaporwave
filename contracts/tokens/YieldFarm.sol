@@ -7,9 +7,11 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "./YieldToken.sol";
 
+/// @title Vaporwave Yield Farm
 contract YieldFarm is YieldToken, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// Staking token address
     address public stakingToken;
 
     constructor(
@@ -20,6 +22,9 @@ contract YieldFarm is YieldToken, ReentrancyGuard {
         stakingToken = _stakingToken;
     }
 
+    /// @notice Stake `_amount` tokens
+    /// @dev mints yield farm tokens
+    /// @param _amount Amount of tokens to stake
     function stake(uint256 _amount) external nonReentrant {
         IERC20(stakingToken).safeTransferFrom(
             msg.sender,
@@ -29,6 +34,9 @@ contract YieldFarm is YieldToken, ReentrancyGuard {
         _mint(msg.sender, _amount);
     }
 
+    /// @notice Unstake `_amount` tokens
+    /// @dev burns yield farm tokens
+    /// @param _amount Amount of tokens to unstake
     function unstake(uint256 _amount) external nonReentrant {
         _burn(msg.sender, _amount);
         IERC20(stakingToken).safeTransfer(msg.sender, _amount);

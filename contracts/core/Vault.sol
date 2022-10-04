@@ -4,9 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
-import "../tokens/interfaces/IUSDV.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IVaultUtils.sol";
 import "./interfaces/IVaultPriceFeed.sol";
@@ -19,16 +17,22 @@ error InvalidLiquidator();
 error InvalidAveragePrice();
 /// Token amount must be greater than 0
 error InvalidTokenAmount();
-/// Invalid USDV amount
-error InvalidUsdvAmount();
+/// Invalid USD amount
+error InvalidUsdAmount();
 /// Invalid collateral amount
 error InvalidCollateral();
 /// Position size must be greater than 0
 error InvalidPositionSize();
 /// Liquidation state cannot be 0
 error InvalidLiquidationState();
-/// Token not on whitelist
-error TokenNotWhitelisted();
+/// Fee basis points cannot be greater than `MAX_FEE_BASIS_POINTS`
+error InvalidBasisPoints();
+/// The funding rate parameters are invalid
+error InvalidFundingRate();
+/// Invalid tokens for the position
+error InvalidTokens();
+/// Token not on allowlist
+error TokenNotAllowlisted();
 /// Amount out must be greater than 0
 error InsufficientAmountOut();
 /// Leverage must be greater than `MIN_LEVERAGE`
@@ -55,9 +59,8 @@ error OnlyRouter();
 error MaxShortsExceeded();
 
 /// @title Vaporwave Vault
-contract Vault is ReentrancyGuard, IVault {
+contract Vault is IVault, ReentrancyGuard {
     using SafeERC20 for IERC20;
-    using Counters for Counters.Counter;
 
     struct Position {
         uint256 size;
@@ -69,24 +72,22 @@ contract Vault is ReentrancyGuard, IVault {
         uint256 lastIncreasedTime;
     }
 
-    /// USDV decimals is 18
-    uint8 public constant USDV_DECIMALS = 18;
     /// Helper to avoid truncation errors in basis points calculations
     uint16 public constant BASIS_POINTS_DIVISOR = 1e4;
     /// The minimum leverage is 1x (10,000)
     uint16 public constant MIN_LEVERAGE = 1e4;
+    /// The max fee basis points is 5% (500)
+    uint16 public constant MAX_FEE_BASIS_POINTS = 500;
+    /// The minimum funding rate interval is 1 hour (3600 seconds)
+    uint16 public constant MIN_FUNDING_RATE_INTERVAL = 1 hours;
+    /// The max funding rate factor is 1% (10,000)
+    uint16 public constant MAX_FUNDING_RATE_FACTOR = 10000;
     /// Helper to avoid truncation errors in funding rate calculations
     uint32 public constant FUNDING_RATE_PRECISION = 1e6;
     /// Helper to avoid truncation errors in price calculations
     uint128 public constant PRICE_PRECISION = 1e30;
-    /// The max fee basis points is 5% (500)
-    uint16 public constant MAX_FEE_BASIS_POINTS = 500;
     /// The max liquidation fee is 100 USD (1e32)
     uint128 public constant MAX_LIQUIDATION_FEE_USD = 100 * PRICE_PRECISION;
-    /// The minimum funding rate interval is 1 hour (3600 seconds)
-    uint256 public constant MIN_FUNDING_RATE_INTERVAL = 1 hours;
-    /// The max funding rate factor is 1% (10,000)
-    uint256 public constant MAX_FUNDING_RATE_FACTOR = 10000;
 
     /// True if the vault is initialzied
     bool public override isInitialized;
@@ -101,110 +102,140 @@ contract Vault is ReentrancyGuard, IVault {
     address public override router;
     /// The price feed address
     address public override priceFeed;
-    /// USD Vaporwave (USDV) token address
-    address public override usdv;
+
     /// The address of the vault owner
     address public override owner;
+    /// The number of allowlisted tokens
+    uint256 public allowlistedTokenCount;
     /// The maximum leverage
     uint256 public override maxLeverage = 5e5; // 50x
 
     /// The liquidation fee in USD
     uint256 public override liquidationFeeUsd;
+    /// The tax basis points
     uint256 public override taxBasisPoints = 50; // 0.5%
+    /// The tax basis points for stablecoins
     uint256 public override stableTaxBasisPoints = 20; // 0.2%
+    /// The fee basis points for a mint or burn
     uint256 public override mintBurnFeeBasisPoints = 30; // 0.3%
+    /// The fee basis points for a token swap
     uint256 public override swapFeeBasisPoints = 30; // 0.3%
+    /// The fee basis points for a stablecoin swap
     uint256 public override stableSwapFeeBasisPoints = 4; // 0.04%
+    /// The margin fee basis points
     uint256 public override marginFeeBasisPoints = 10; // 0.1%
 
+    /// The minimum profit time
     uint256 public override minProfitTime;
+    /// True if the contract has dynamic fees
     bool public override hasDynamicFees;
 
-    uint256 public override fundingInterval = 8 hours;
+    /// The funding interval
+    uint256 public override fundingInterval = 1 hours;
+    /// The funding rate factor
     uint256 public override fundingRateFactor;
+    /// The funding rate factor for stable coins
     uint256 public override stableFundingRateFactor;
+    /// The total token weights
     uint256 public override totalTokenWeights;
 
+    /// True if AMM pricing should be included
     bool public includeAmmPrice = true;
-    bool public useSwapPricing;
 
-    bool public override inManagerMode;
+    /// True if the contract is in private liquidation mode
     bool public override inPrivateLiquidationMode;
 
+    /// The max gas price
     uint256 public override maxGasPrice;
 
-    Counters.Counter private _whitelistedTokenCount;
-
+    /// Mapping of approved routers
     mapping(address => mapping(address => bool))
         public
         override approvedRouters;
+    /// Mapping of liquidators
     mapping(address => bool) public override isLiquidator;
+    /// Mapping of managers
     mapping(address => bool) public override isManager;
 
-    address[] public override allWhitelistedTokens;
+    /// Array of all allowlisted tokens
+    address[] public override allAllowlistedTokens;
 
-    mapping(address => bool) public override whitelistedTokens;
+    /// Mapping of allowlisted tokens
+    mapping(address => bool) public override allowlistedTokens;
+    /// Mapping of token decimals
     mapping(address => uint256) public override tokenDecimals;
+    /// Mapping of minimum profit basis points by token
     mapping(address => uint256) public override minProfitBasisPoints;
+    /// Mapping of stable tokens (stablecoins)
     mapping(address => bool) public override stableTokens;
+    /// Mapping of shortable tokens
     mapping(address => bool) public override shortableTokens;
 
-    // tokenBalances is used only to determine _transferIn values
+    /// Mapping of token balances
+    /// @dev tokenBalances is used only to determine _transferIn values
     mapping(address => uint256) public override tokenBalances;
 
-    // tokenWeights allows customisation of index composition
+    /// Mapping of token weights
+    /// @dev tokenWeights allows customisation of index composition
     mapping(address => uint256) public override tokenWeights;
 
-    // usdvAmounts tracks the amount of USDV debt for each whitelisted token
-    mapping(address => uint256) public override usdvAmounts;
+    /// Mapping of max USD amounts by token
+    /// @dev maxUsdAmounts allows setting a max amount of USD debt for a token
+    mapping(address => uint256) public override maxUsdAmounts;
 
-    // maxUsdvAmounts allows setting a max amount of USDV debt for a token
-    mapping(address => uint256) public override maxUsdvAmounts;
-
-    // poolAmounts tracks the number of received tokens that can be used for leverage
-    // this is tracked separately from tokenBalances to exclude funds that are deposited as margin collateral
+    /// Mapping of pool amounts by token
+    /// @dev poolAmounts tracks the number of received tokens that can be used for leverage
+    /// @dev this is tracked separately from tokenBalances to exclude funds that are deposited as margin collateral
     mapping(address => uint256) public override poolAmounts;
 
-    // reservedAmounts tracks the number of tokens reserved for open leverage positions
+    /// Mapping of reserved amounts by token
+    /// @dev reservedAmounts tracks the number of tokens reserved for open leverage positions
     mapping(address => uint256) public override reservedAmounts;
 
-    // bufferAmounts allows specification of an amount to exclude from swaps
-    // this can be used to ensure a certain amount of liquidity is available for leverage positions
+    /// Mapping of buffer amounts by token
+    /// @dev bufferAmounts allows specification of an amount to exclude from swaps
+    /// @dev this can be used to ensure a certain amount of liquidity is available for leverage positions
     mapping(address => uint256) public override bufferAmounts;
 
-    // guaranteedUsd tracks the amount of USD that is "guaranteed" by opened leverage positions
-    // this value is used to calculate the redemption values for selling of USDV
-    // this is an estimated amount, it is possible for the actual guaranteed value to be lower
-    // in the case of sudden price decreases, the guaranteed value should be corrected
-    // after liquidations are carried out
+    /// Mapping of guaranteed USD amounts by token
+    /// @dev guaranteedUsd tracks the amount of USD that is "guaranteed" by opened leverage positions
+    /// @dev this is an estimated amount, it is possible for the actual guaranteed value to be lower
+    /// @dev in the case of sudden price decreases, the guaranteed value should be corrected
+    /// @dev after liquidations are carried out
     mapping(address => uint256) public override guaranteedUsd;
 
-    // cumulativeFundingRates tracks the funding rates based on utilization
+    /// Mapping of cumulative funding rates by token
+    /// @dev cumulativeFundingRates tracks the funding rates based on utilization
     mapping(address => uint256) public override cumulativeFundingRates;
-    // lastFundingTimes tracks the last time funding was updated for a token
+    /// Mapping of last funding times by token
+    /// @dev lastFundingTimes tracks the last time funding was updated for a token
     mapping(address => uint256) public override lastFundingTimes;
 
-    // positions tracks all open positions
+    /// Mapping of positions
+    /// @dev positions tracks all open positions
     mapping(bytes32 => Position) public positions;
 
-    // feeReserves tracks the amount of fees per token
+    /// Mapping of fee reserves by token
+    /// @dev feeReserves tracks the amount of fees per token
     mapping(address => uint256) public override feeReserves;
 
+    /// Mapping of the global short sizes by token
     mapping(address => uint256) public override globalShortSizes;
+    /// Mapping of the global average short prices by token
     mapping(address => uint256) public override globalShortAveragePrices;
+    /// Mapping of the max global short sizes by token
     mapping(address => uint256) public override maxGlobalShortSizes;
 
-    event BuyUSDV(
-        address account,
+    event Buy(
         address token,
         uint256 tokenAmount,
-        uint256 usdvAmount,
+        uint256 usdAmount,
         uint256 feeBasisPoints
     );
-    event SellUSDV(
+    event Sell(
         address account,
         address token,
-        uint256 usdvAmount,
+        uint256 usdAmount,
         uint256 tokenAmount,
         uint256 feeBasisPoints
     );
@@ -281,8 +312,6 @@ contract Vault is ReentrancyGuard, IVault {
     event DirectPoolDeposit(address token, uint256 amount);
     event IncreasePoolAmount(address token, uint256 amount);
     event DecreasePoolAmount(address token, uint256 amount);
-    event IncreaseUsdvAmount(address token, uint256 amount);
-    event DecreaseUsdvAmount(address token, uint256 amount);
     event IncreaseReservedAmount(address token, uint256 amount);
     event DecreaseReservedAmount(address token, uint256 amount);
     event IncreaseGuaranteedUsd(address token, uint256 amount);
@@ -298,14 +327,12 @@ contract Vault is ReentrancyGuard, IVault {
 
     /// @notice Initialize the contract
     /// @param _router The address of the router contract
-    /// @param _usdv The address of the USDV contract
     /// @param _priceFeed The address of the price feed contract
     /// @param _liquidationFeeUsd The fee charged for liquidation
     /// @param _fundingRateFactor The factor used to calculate the funding rate
     /// @param _stableFundingRateFactor The stable funding rate factor
     function initialize(
         address _router,
-        address _usdv,
         address _priceFeed,
         uint256 _liquidationFeeUsd,
         uint256 _fundingRateFactor,
@@ -318,7 +345,6 @@ contract Vault is ReentrancyGuard, IVault {
         isInitialized = true;
 
         router = _router;
-        usdv = _usdv;
         priceFeed = _priceFeed;
         liquidationFeeUsd = _liquidationFeeUsd;
         fundingRateFactor = _fundingRateFactor;
@@ -333,13 +359,6 @@ contract Vault is ReentrancyGuard, IVault {
         vaultUtils = _vaultUtils;
     }
 
-    /// @notice Toggle manager mode
-    /// @dev Can only be called by the contract owner
-    function setInManagerMode(bool _inManagerMode) external override {
-        _onlyOwner();
-        inManagerMode = _inManagerMode;
-    }
-
     /// @notice Set a manager address
     /// @dev Can only be called by the contract owner
     /// @param _manager Address to be added or removed from the manager list
@@ -347,6 +366,14 @@ contract Vault is ReentrancyGuard, IVault {
     function setManager(address _manager, bool _isManager) external override {
         _onlyOwner();
         isManager[_manager] = _isManager;
+    }
+
+    /// @notice Transfer the contract ownership
+    /// @dev Can only be called by the contract owner
+    /// @param _owner The new owner of the contract
+    function setOwner(address _owner) external {
+        _onlyOwner();
+        owner = _owner;
     }
 
     /// @notice Toggle private liquidation mode
@@ -405,8 +432,7 @@ contract Vault is ReentrancyGuard, IVault {
     /// @param _maxLeverage The maximum leverage
     function setMaxLeverage(uint256 _maxLeverage) external override {
         _onlyOwner();
-        if (_maxLeverage <= MIN_LEVERAGE) {
-            // Question: should this be <= or <?
+        if (_maxLeverage < MIN_LEVERAGE) {
             revert InsufficientLeverage();
         }
         maxLeverage = _maxLeverage;
@@ -421,6 +447,17 @@ contract Vault is ReentrancyGuard, IVault {
     {
         _onlyOwner();
         bufferAmounts[_token] = _amount;
+    }
+
+    /// @notice Set the max usd debt amount for `_token` to `_amount`
+    /// @param _token The address of the token to set the max usd amount for
+    /// @param _amount The max usd debt amount
+    function setMaxUsdAmount(address _token, uint256 _amount)
+        external
+        override
+    {
+        _onlyOwner();
+        maxUsdAmounts[_token] = _amount;
     }
 
     /// @notice Set Max Global Short Size
@@ -448,15 +485,17 @@ contract Vault is ReentrancyGuard, IVault {
         bool _hasDynamicFees
     ) external override {
         _onlyOwner();
-        require(
-            _taxBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _stableTaxBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _mintBurnFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _swapFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _stableSwapFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _marginFeeBasisPoints <= MAX_FEE_BASIS_POINTS &&
-                _liquidationFeeUsd <= MAX_LIQUIDATION_FEE_USD
-        );
+        if (
+            _taxBasisPoints > MAX_FEE_BASIS_POINTS ||
+            _stableTaxBasisPoints > MAX_FEE_BASIS_POINTS ||
+            _mintBurnFeeBasisPoints > MAX_FEE_BASIS_POINTS ||
+            _swapFeeBasisPoints > MAX_FEE_BASIS_POINTS ||
+            _stableSwapFeeBasisPoints > MAX_FEE_BASIS_POINTS ||
+            _marginFeeBasisPoints > MAX_FEE_BASIS_POINTS ||
+            _liquidationFeeUsd > MAX_LIQUIDATION_FEE_USD
+        ) {
+            revert InvalidBasisPoints();
+        }
         taxBasisPoints = _taxBasisPoints;
         stableTaxBasisPoints = _stableTaxBasisPoints;
         mintBurnFeeBasisPoints = _mintBurnFeeBasisPoints;
@@ -478,11 +517,13 @@ contract Vault is ReentrancyGuard, IVault {
         uint256 _stableFundingRateFactor
     ) external override {
         _onlyOwner();
-        require(
-            _fundingInterval >= MIN_FUNDING_RATE_INTERVAL &&
-                _fundingRateFactor <= MAX_FUNDING_RATE_FACTOR &&
-                _stableFundingRateFactor <= MAX_FUNDING_RATE_FACTOR
-        );
+        if (
+            _fundingInterval < MIN_FUNDING_RATE_INTERVAL ||
+            _fundingRateFactor > MAX_FUNDING_RATE_FACTOR ||
+            _stableFundingRateFactor > MAX_FUNDING_RATE_FACTOR
+        ) {
+            revert InvalidFundingRate();
+        }
 
         fundingInterval = _fundingInterval;
         fundingRateFactor = _fundingRateFactor;
@@ -495,25 +536,23 @@ contract Vault is ReentrancyGuard, IVault {
         uint256 _tokenDecimals,
         uint256 _tokenWeight,
         uint256 _minProfitBps,
-        uint256 _maxUsdvAmount,
         bool _isStable,
         bool _isShortable
     ) external override {
         _onlyOwner();
         // increment token count for the first time
-        if (!whitelistedTokens[_token]) {
-            _whitelistedTokenCount.increment();
-            allWhitelistedTokens.push(_token);
+        if (!allowlistedTokens[_token]) {
+            allowlistedTokenCount++;
+            allAllowlistedTokens.push(_token);
         }
 
         uint256 _totalTokenWeights = totalTokenWeights;
-        _totalTokenWeights = _totalTokenWeights - tokenWeights[_token];
+        _totalTokenWeights -= tokenWeights[_token];
 
-        whitelistedTokens[_token] = true;
+        allowlistedTokens[_token] = true;
         tokenDecimals[_token] = _tokenDecimals;
         tokenWeights[_token] = _tokenWeight;
         minProfitBasisPoints[_token] = _minProfitBps;
-        maxUsdvAmounts[_token] = _maxUsdvAmount;
         stableTokens[_token] = _isStable;
         shortableTokens[_token] = _isShortable;
 
@@ -525,18 +564,18 @@ contract Vault is ReentrancyGuard, IVault {
 
     function clearTokenConfig(address _token) external {
         _onlyOwner();
-        if (!whitelistedTokens[_token]) {
-            revert TokenNotWhitelisted();
+        if (!allowlistedTokens[_token]) {
+            revert TokenNotAllowlisted();
         }
         totalTokenWeights = totalTokenWeights - tokenWeights[_token];
-        delete whitelistedTokens[_token];
+        delete allowlistedTokens[_token];
         delete tokenDecimals[_token];
         delete tokenWeights[_token];
         delete minProfitBasisPoints[_token];
-        delete maxUsdvAmounts[_token];
+        delete maxUsdAmounts[_token];
         delete stableTokens[_token];
         delete shortableTokens[_token];
-        _whitelistedTokenCount.decrement();
+        allowlistedTokenCount--;
     }
 
     /// @notice Withdraw fees
@@ -570,20 +609,6 @@ contract Vault is ReentrancyGuard, IVault {
         approvedRouters[msg.sender][_router] = false;
     }
 
-    /// @notice Set the USDV amount for `_token`
-    /// @param _token The token to set
-    /// @param _amount The amount to add or subtract from the token's usdvAmount
-    function setUsdvAmount(address _token, uint256 _amount) external override {
-        _onlyOwner();
-        uint256 usdvAmount = usdvAmounts[_token];
-        if (_amount > usdvAmount) {
-            _increaseUsdvAmount(_token, _amount - usdvAmount);
-            return;
-        }
-
-        _decreaseUsdvAmount(_token, usdvAmount - _amount);
-    }
-
     // NOTE: discussion for function removal - timelock necessary
     /// @notice Upgrade the vault (Transfer tokens to a new vault)
     /// @dev The governance controlling this function should have a timelock
@@ -599,13 +624,14 @@ contract Vault is ReentrancyGuard, IVault {
         IERC20(_token).safeTransfer(_newVault, _amount);
     }
 
-    /// @notice Deposit `_token` directly to the pool
-    /// @dev deposit into the pool without minting USDV tokens - useful in allowing the pool to become over-collaterised
+    /// @notice Recalculate pool amounts after a direct token deposit
+    // TODO: rewrite comments
+    /// @dev deposit into the pool without minting USD tokens - useful in allowing the pool to become over-collaterised
     /// @dev Emits an event `DirectPoolDeposit`
     /// @param _token The token to deposit into the pool
     function directPoolDeposit(address _token) external override nonReentrant {
-        if (!whitelistedTokens[_token]) {
-            revert TokenNotWhitelisted();
+        if (!allowlistedTokens[_token]) {
+            revert TokenNotAllowlisted();
         }
         uint256 tokenAmount = _transferIn(_token);
         if (tokenAmount == 0) {
@@ -615,21 +641,21 @@ contract Vault is ReentrancyGuard, IVault {
         emit DirectPoolDeposit(_token, tokenAmount);
     }
 
-    /// @notice Buy USDV tokens
-    /// @dev Emits an event `BuyUSDV`
-    /// @param _token The token used to buy USDV -- token must be whitelisted
-    /// @param _receiver The receiver of the USDV tokens
-    function buyUSDV(address _token, address _receiver)
+    // TODO update comments
+    /// @notice Buy USD
+    /// @dev Update the pool amounts after a token transfer in
+    /// @dev Emits a `Buy` event
+    /// @param _token The token used to buy USD -- token must be allowlisted
+    function buy(address _token)
         external
         override
         nonReentrant
         returns (uint256)
     {
         _validateManager();
-        if (!whitelistedTokens[_token]) {
-            revert TokenNotWhitelisted();
+        if (!allowlistedTokens[_token]) {
+            revert TokenNotAllowlisted();
         }
-        useSwapPricing = true;
 
         uint256 tokenAmount = _transferIn(_token);
         if (tokenAmount == 0) {
@@ -640,83 +666,62 @@ contract Vault is ReentrancyGuard, IVault {
 
         uint256 price = getMinPrice(_token);
 
-        uint256 usdvAmount = (tokenAmount * price) / PRICE_PRECISION;
-        usdvAmount = adjustForDecimals(usdvAmount, _token, usdv);
-        if (usdvAmount == 0) {
-            revert InvalidUsdvAmount();
+        uint256 usdAmount = (tokenAmount * price) / (10**tokenDecimals[_token]);
+        if (usdAmount == 0) {
+            revert InvalidUsdAmount();
         }
 
-        uint256 feeBasisPoints = vaultUtils.getBuyUsdvFeeBasisPoints(
+        uint256 feeBasisPoints = vaultUtils.getBuyUsdFeeBasisPoints(
             _token,
-            usdvAmount
+            usdAmount
         );
         uint256 amountAfterFees = _collectSwapFees(
             _token,
             tokenAmount,
             feeBasisPoints
         );
-        uint256 mintAmount = (amountAfterFees * price) / PRICE_PRECISION;
-        mintAmount = adjustForDecimals(mintAmount, _token, usdv);
+        uint256 mintAmount = (amountAfterFees * price) /
+            (10**tokenDecimals[_token]);
 
-        _increaseUsdvAmount(_token, mintAmount);
         _increasePoolAmount(_token, amountAfterFees);
+        _validateMaxUsdAmount(_token);
 
-        IUSDV(usdv).mint(_receiver, mintAmount);
+        emit Buy(_token, tokenAmount, mintAmount, feeBasisPoints);
 
-        emit BuyUSDV(
-            _receiver,
-            _token,
-            tokenAmount,
-            mintAmount,
-            feeBasisPoints
-        );
-
-        useSwapPricing = false;
         return mintAmount;
     }
 
-    /// @notice Sell USDV tokens
-    /// @dev Emits an event `SellUSDV`
-    /// @param _token The token to sell USDV for -- token must be whitelisted
+    // TODO update comments
+    /// @notice Sell USD tokens
+    /// @dev Emits a `Sell` event
+    /// @param _token The token to sell USD for -- token must be allowlisted
     /// @param _receiver The receiver of the tokens
-    function sellUSDV(address _token, address _receiver)
-        external
-        override
-        nonReentrant
-        returns (uint256)
-    {
+    function sell(
+        address _token,
+        address _receiver,
+        uint256 _usdAmount
+    ) external override nonReentrant returns (uint256) {
         _validateManager();
-        if (!whitelistedTokens[_token]) {
-            revert TokenNotWhitelisted();
+        if (!allowlistedTokens[_token]) {
+            revert TokenNotAllowlisted();
         }
-        useSwapPricing = true;
 
-        uint256 usdvAmount = _transferIn(usdv);
-        if (usdvAmount == 0) {
-            revert InvalidUsdvAmount();
+        if (_usdAmount == 0) {
+            revert InvalidUsdAmount();
         }
 
         updateCumulativeFundingRate(_token, _token);
 
-        uint256 redemptionAmount = getRedemptionAmount(_token, usdvAmount);
+        uint256 redemptionAmount = getRedemptionAmount(_token, _usdAmount);
         if (redemptionAmount == 0) {
             revert InvalidTokenAmount();
         }
 
-        _decreaseUsdvAmount(_token, usdvAmount);
         _decreasePoolAmount(_token, redemptionAmount);
 
-        IUSDV(usdv).burn(address(this), usdvAmount);
-
-        // the _transferIn call increased the value of tokenBalances[usdv]
-        // usually decreases in token balances are synced by calling _transferOut
-        // however, for usdv, the tokens are burnt, so _updateTokenBalance should
-        // be manually called to record the decrease in tokens
-        _updateTokenBalance(usdv);
-
-        uint256 feeBasisPoints = vaultUtils.getSellUsdvFeeBasisPoints(
+        uint256 feeBasisPoints = vaultUtils.getSellUsdFeeBasisPoints(
             _token,
-            usdvAmount
+            _usdAmount
         );
         uint256 amountOut = _collectSwapFees(
             _token,
@@ -729,9 +734,8 @@ contract Vault is ReentrancyGuard, IVault {
 
         _transferOut(_token, amountOut, _receiver);
 
-        emit SellUSDV(_receiver, _token, usdvAmount, amountOut, feeBasisPoints);
+        emit Sell(_receiver, _token, _usdAmount, amountOut, feeBasisPoints);
 
-        useSwapPricing = false;
         return amountOut;
     }
 
@@ -740,22 +744,21 @@ contract Vault is ReentrancyGuard, IVault {
     /// @param _tokenIn The token to swap in
     /// @param _tokenOut The token to swap out
     /// @param _receiver The receiver of the tokens
+    /// @return amountOutAfterFees The amount of tokens out after fees
     function swap(
         address _tokenIn,
         address _tokenOut,
         address _receiver
-    ) external override nonReentrant returns (uint256) {
+    ) external override nonReentrant returns (uint256 amountOutAfterFees) {
         if (!isSwapEnabled) {
             revert SwapDisabled();
         }
-        if (!whitelistedTokens[_tokenIn] || !whitelistedTokens[_tokenOut]) {
-            revert TokenNotWhitelisted();
+        if (!allowlistedTokens[_tokenIn] || !allowlistedTokens[_tokenOut]) {
+            revert TokenNotAllowlisted();
         }
         if (_tokenIn == _tokenOut) {
             revert SameToken();
         }
-
-        useSwapPricing = true;
 
         updateCumulativeFundingRate(_tokenIn, _tokenIn);
         updateCumulativeFundingRate(_tokenOut, _tokenOut);
@@ -768,30 +771,29 @@ contract Vault is ReentrancyGuard, IVault {
         uint256 priceIn = getMinPrice(_tokenIn);
         uint256 priceOut = getMaxPrice(_tokenOut);
 
-        uint256 amountOut = (amountIn * priceIn) / priceOut;
-        amountOut = adjustForDecimals(amountOut, _tokenIn, _tokenOut);
+        uint256 amountOut = ((amountIn * priceIn) *
+            (10**tokenDecimals[_tokenOut])) /
+            priceOut /
+            (10**tokenDecimals[_tokenIn]);
 
-        // adjust usdvAmounts by the same usdvAmount as debt is shifted between the assets
-        uint256 usdvAmount = (amountIn * priceIn) / PRICE_PRECISION;
-        usdvAmount = adjustForDecimals(usdvAmount, _tokenIn, usdv);
+        uint256 usdAmount = (amountIn * priceIn) /
+            (10**tokenDecimals[_tokenIn]);
 
         uint256 feeBasisPoints = vaultUtils.getSwapFeeBasisPoints(
             _tokenIn,
             _tokenOut,
-            usdvAmount
+            usdAmount
         );
-        uint256 amountOutAfterFees = _collectSwapFees(
+        amountOutAfterFees = _collectSwapFees(
             _tokenOut,
             amountOut,
             feeBasisPoints
         );
 
-        _increaseUsdvAmount(_tokenIn, usdvAmount);
-        _decreaseUsdvAmount(_tokenOut, usdvAmount);
-
         _increasePoolAmount(_tokenIn, amountIn);
         _decreasePoolAmount(_tokenOut, amountOut);
 
+        _validateMaxUsdAmount(_tokenIn);
         _validateBufferAmount(_tokenOut);
 
         _transferOut(_tokenOut, amountOutAfterFees, _receiver);
@@ -806,7 +808,6 @@ contract Vault is ReentrancyGuard, IVault {
             feeBasisPoints
         );
 
-        useSwapPricing = false;
         return amountOutAfterFees;
     }
 
@@ -1103,21 +1104,15 @@ contract Vault is ReentrancyGuard, IVault {
         includeAmmPrice = true;
     }
 
-    /// @notice Get the number of whitelisted tokens
+    /// @notice Get the number of allowlisted tokens
     /// @return The length of the allWhiteListedtokens array
-    function allWhitelistedTokensLength()
+    function allAllowlistedTokensLength()
         external
         view
         override
         returns (uint256)
     {
-        return allWhitelistedTokens.length;
-    }
-
-    /// @notice Get the whitelisted token count
-    /// @return The whitelisted token count
-    function whitelistedTokenCount() external view override returns (uint256) {
-        return _whitelistedTokenCount.current();
+        return allAllowlistedTokens.length;
     }
 
     /// @notice Update the cumulative funding rate
@@ -1194,12 +1189,7 @@ contract Vault is ReentrancyGuard, IVault {
         returns (uint256)
     {
         return
-            IVaultPriceFeed(priceFeed).getPrice(
-                _token,
-                true,
-                includeAmmPrice,
-                useSwapPricing
-            );
+            IVaultPriceFeed(priceFeed).getPrice(_token, true, includeAmmPrice);
     }
 
     /// @notice Get the min price for `_token`
@@ -1212,27 +1202,25 @@ contract Vault is ReentrancyGuard, IVault {
         returns (uint256)
     {
         return
-            IVaultPriceFeed(priceFeed).getPrice(
-                _token,
-                false,
-                includeAmmPrice,
-                useSwapPricing
-            );
+            IVaultPriceFeed(priceFeed).getPrice(_token, false, includeAmmPrice);
     }
 
     /// @notice Get the redemption amount for `_token`
     /// @param _token The token address to query for the redemption amount
-    /// @param _usdvAmount The USDV amount
-    /// @return The redemption amount for the token in USDV
-    function getRedemptionAmount(address _token, uint256 _usdvAmount)
+    /// @param _usdAmount The USD amount
+    /// @return redemptionAmount The redemption amount for the token in USD
+    function getRedemptionAmount(address _token, uint256 _usdAmount)
         public
         view
         override
-        returns (uint256)
+        returns (uint256 redemptionAmount)
     {
         uint256 price = getMaxPrice(_token);
-        uint256 redemptionAmount = (_usdvAmount * PRICE_PRECISION) / price;
-        return adjustForDecimals(redemptionAmount, usdv, _token);
+        redemptionAmount =
+            (((_usdAmount * PRICE_PRECISION) / price) *
+                (10**tokenDecimals[_token])) /
+            PRICE_PRECISION;
+        return redemptionAmount;
     }
 
     /// @notice Get the redemption collateral for `_token`
@@ -1259,25 +1247,6 @@ contract Vault is ReentrancyGuard, IVault {
         returns (uint256)
     {
         return tokenToUsdMin(_token, getRedemptionCollateral(_token));
-    }
-
-    /// @notice Adjust the amount for the tokens' decimals
-    /// @param _amount Token amount to be adjusted
-    /// @param _tokenDiv The divisor
-    /// @param _tokenMul The multiplier
-    /// @return The token amount adjusted for decimals
-    function adjustForDecimals(
-        uint256 _amount,
-        address _tokenDiv,
-        address _tokenMul
-    ) public view returns (uint256) {
-        uint256 decimalsDiv = _tokenDiv == usdv
-            ? USDV_DECIMALS
-            : tokenDecimals[_tokenDiv];
-        uint256 decimalsMul = _tokenMul == usdv
-            ? USDV_DECIMALS
-            : tokenDecimals[_tokenMul];
-        return (_amount * (10**decimalsMul)) / (10**decimalsDiv);
     }
 
     /// @notice Get the minimum price for `_tokenAmount` of `_token` in USD
@@ -1693,7 +1662,7 @@ contract Vault is ReentrancyGuard, IVault {
      */
     function getFeeBasisPoints(
         address _token,
-        uint256 _usdvDelta,
+        uint256 _usdDelta,
         uint256 _feeBasisPoints,
         uint256 _taxBasisPoints,
         bool _increment
@@ -1701,28 +1670,40 @@ contract Vault is ReentrancyGuard, IVault {
         return
             vaultUtils.getFeeBasisPoints(
                 _token,
-                _usdvDelta,
+                _usdDelta,
                 _feeBasisPoints,
                 _taxBasisPoints,
                 _increment
             );
     }
 
-    /// @notice Get the target USDV amount
+    /// @notice Get the target USD amount
     /// @param _token The token address
-    /// @return The target USDV amount
-    function getTargetUsdvAmount(address _token)
+    /// @return The target USD amount
+    function getTargetUsdAmount(address _token)
         public
         view
         override
         returns (uint256)
     {
-        uint256 supply = IERC20(usdv).totalSupply();
+        uint256 supply = vaultUtils.getAum(false);
         if (supply == 0) {
             return 0;
         }
         uint256 weight = tokenWeights[_token];
         return (weight * supply) / totalTokenWeights;
+    }
+
+    /// @notice Calculates the current token aum in Vault
+    /// @param _token The token address
+    /// @return The current token aum in vault
+    function getTokenAum(address _token)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        return vaultUtils.getTokenAum(_token, false);
     }
 
     /// @notice Get a position key
@@ -2078,11 +2059,6 @@ contract Vault is ReentrancyGuard, IVault {
         tokenBalances[_token] = IERC20(_token).balanceOf(address(this));
     }
 
-    function _updateTokenBalance(address _token) private {
-        uint256 nextBalance = IERC20(_token).balanceOf(address(this));
-        tokenBalances[_token] = nextBalance;
-    }
-
     function _increasePoolAmount(address _token, uint256 _amount) private {
         poolAmounts[_token] += _amount;
         uint256 balance = IERC20(_token).balanceOf(address(this));
@@ -2103,31 +2079,6 @@ contract Vault is ReentrancyGuard, IVault {
             revert InsufficientPoolAmount();
         }
         emit DecreasePoolAmount(_token, _amount);
-    }
-
-    function _increaseUsdvAmount(address _token, uint256 _amount) private {
-        usdvAmounts[_token] += _amount;
-        uint256 maxUsdvAmount = maxUsdvAmounts[_token];
-        if (maxUsdvAmount != 0) {
-            if (usdvAmounts[_token] > maxUsdvAmount) {
-                revert InvalidUsdvAmount();
-            }
-        }
-        emit IncreaseUsdvAmount(_token, _amount);
-    }
-
-    function _decreaseUsdvAmount(address _token, uint256 _amount) private {
-        uint256 value = usdvAmounts[_token];
-        // since USDV can be minted using multiple assets
-        // it is possible for the USDV debt for a single asset to be less than zero
-        // the USDV debt is capped to zero for this case
-        if (value <= _amount) {
-            usdvAmounts[_token] = 0;
-            emit DecreaseUsdvAmount(_token, value);
-            return;
-        }
-        usdvAmounts[_token] = value - _amount;
-        emit DecreaseUsdvAmount(_token, _amount);
     }
 
     function _increaseReservedAmount(address _token, uint256 _amount) private {
@@ -2207,20 +2158,30 @@ contract Vault is ReentrancyGuard, IVault {
         bool _isLong
     ) private view {
         if (_isLong) {
-            require(
-                _collateralToken == _indexToken &&
-                    whitelistedTokens[_collateralToken] &&
-                    !stableTokens[_collateralToken]
-            );
+            if (
+                _collateralToken != _indexToken ||
+                !allowlistedTokens[_collateralToken] ||
+                stableTokens[_collateralToken]
+            ) {
+                revert InvalidTokens();
+            }
             return;
         }
 
-        require(
-            whitelistedTokens[_collateralToken] &&
-                stableTokens[_collateralToken] &&
-                !stableTokens[_indexToken] &&
-                shortableTokens[_indexToken]
-        );
+        if (
+            !allowlistedTokens[_collateralToken] ||
+            !stableTokens[_collateralToken] ||
+            stableTokens[_indexToken] ||
+            !shortableTokens[_indexToken]
+        ) {
+            revert InvalidTokens();
+        }
+    }
+
+    function _validateMaxUsdAmount(address _token) private view {
+        if (poolAmounts[_token] > maxUsdAmounts[_token]) {
+            revert InsufficientPoolAmount();
+        }
     }
 
     // we have this validation as a function instead of a modifier to reduce contract size
@@ -2232,10 +2193,8 @@ contract Vault is ReentrancyGuard, IVault {
 
     // we have this validation as a function instead of a modifier to reduce contract size
     function _validateManager() private view {
-        if (inManagerMode) {
-            if (!isManager[msg.sender]) {
-                revert OnlyManager();
-            }
+        if (!isManager[msg.sender]) {
+            revert OnlyManager();
         }
     }
 

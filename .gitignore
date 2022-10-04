@@ -8,3 +8,10 @@ typechain-types
 #Hardhat files
 cache
 artifacts
+
+#Foundry files
+broadcast/
+cache/
+forge-cache/
+out/
+lib/

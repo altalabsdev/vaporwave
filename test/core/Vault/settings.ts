@@ -350,8 +350,8 @@ describe("Vault.settings", function () {
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(300));
 
-    expect(await vault.whitelistedTokenCount()).eq(0);
-    expect(await vault.whitelistedTokens(bnb.address)).eq(false);
+    expect(await vault.allowlistedTokenCount()).eq(0);
+    expect(await vault.allowlistedTokens(bnb.address)).eq(false);
     expect(await vault.tokenDecimals(bnb.address)).eq(0);
     expect(await vault.tokenWeights(bnb.address)).eq(0);
     expect(await vault.totalTokenWeights()).eq(0);
@@ -363,8 +363,8 @@ describe("Vault.settings", function () {
 
     await vault.setTokenConfig(...params);
 
-    expect(await vault.whitelistedTokenCount()).eq(1);
-    expect(await vault.whitelistedTokens(bnb.address)).eq(true);
+    expect(await vault.allowlistedTokenCount()).eq(1);
+    expect(await vault.allowlistedTokens(bnb.address)).eq(true);
     expect(await vault.tokenDecimals(bnb.address)).eq(18);
     expect(await vault.tokenWeights(bnb.address)).eq(10000);
     expect(await vault.totalTokenWeights()).eq(10000);
@@ -386,8 +386,8 @@ describe("Vault.settings", function () {
       false // _isShortable
     );
 
-    expect(await vault.whitelistedTokenCount()).eq(2);
-    expect(await vault.whitelistedTokens(dai.address)).eq(true);
+    expect(await vault.allowlistedTokenCount()).eq(2);
+    expect(await vault.allowlistedTokens(dai.address)).eq(true);
     expect(await vault.tokenDecimals(dai.address)).eq(2);
     expect(await vault.tokenWeights(dai.address)).eq(5000);
     expect(await vault.totalTokenWeights()).eq(15000);
@@ -407,8 +407,8 @@ describe("Vault.settings", function () {
       false // _isShortable
     );
 
-    expect(await vault.whitelistedTokenCount()).eq(2);
-    expect(await vault.whitelistedTokens(dai.address)).eq(true);
+    expect(await vault.allowlistedTokenCount()).eq(2);
+    expect(await vault.allowlistedTokens(dai.address)).eq(true);
     expect(await vault.tokenDecimals(dai.address)).eq(20);
     expect(await vault.tokenWeights(dai.address)).eq(7000);
     expect(await vault.totalTokenWeights()).eq(17000);
@@ -432,8 +432,8 @@ describe("Vault.settings", function () {
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(300));
 
-    expect(await vault.whitelistedTokenCount()).eq(0);
-    expect(await vault.whitelistedTokens(bnb.address)).eq(false);
+    expect(await vault.allowlistedTokenCount()).eq(0);
+    expect(await vault.allowlistedTokens(bnb.address)).eq(false);
     expect(await vault.tokenDecimals(bnb.address)).eq(0);
     expect(await vault.tokenWeights(bnb.address)).eq(0);
     expect(await vault.totalTokenWeights()).eq(0);
@@ -444,8 +444,8 @@ describe("Vault.settings", function () {
 
     await vault.setTokenConfig(...params);
 
-    expect(await vault.whitelistedTokenCount()).eq(1);
-    expect(await vault.whitelistedTokens(bnb.address)).eq(true);
+    expect(await vault.allowlistedTokenCount()).eq(1);
+    expect(await vault.allowlistedTokens(bnb.address)).eq(true);
     expect(await vault.tokenDecimals(bnb.address)).eq(18);
     expect(await vault.tokenWeights(bnb.address)).eq(7000);
     expect(await vault.totalTokenWeights()).eq(7000);
@@ -465,8 +465,8 @@ describe("Vault.settings", function () {
       false // _isShortable
     );
 
-    expect(await vault.whitelistedTokenCount()).eq(2);
-    expect(await vault.whitelistedTokens(bnb.address)).eq(true);
+    expect(await vault.allowlistedTokenCount()).eq(2);
+    expect(await vault.allowlistedTokens(bnb.address)).eq(true);
     expect(await vault.tokenDecimals(bnb.address)).eq(18);
     expect(await vault.tokenWeights(bnb.address)).eq(7000);
     expect(await vault.totalTokenWeights()).eq(12000);
@@ -481,8 +481,8 @@ describe("Vault.settings", function () {
 
     await vault.clearTokenConfig(bnb.address);
 
-    expect(await vault.whitelistedTokenCount()).eq(1);
-    expect(await vault.whitelistedTokens(bnb.address)).eq(false);
+    expect(await vault.allowlistedTokenCount()).eq(1);
+    expect(await vault.allowlistedTokens(bnb.address)).eq(false);
     expect(await vault.tokenDecimals(bnb.address)).eq(0);
     expect(await vault.tokenWeights(bnb.address)).eq(0);
     expect(await vault.totalTokenWeights()).eq(5000);
@@ -492,7 +492,7 @@ describe("Vault.settings", function () {
     expect(await vault.shortableTokens(bnb.address)).eq(false);
 
     await expect(vault.clearTokenConfig(bnb.address)).to.be.revertedWith(
-      "Vault: token not whitelisted"
+      "Vault: token not allowlisted"
     );
   });
 

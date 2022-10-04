@@ -113,7 +113,7 @@ describe("Vault.increaseShortPosition", function () {
           toUsd(1000),
           false
         )
-    ).to.be.revertedWith("Vault: _collateralToken not whitelisted");
+    ).to.be.revertedWith("Vault: _collateralToken not allowlisted");
     await expect(
       vault
         .connect(user0)

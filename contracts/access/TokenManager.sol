@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 import "../peripherals/interfaces/ITimelock.sol";
 
@@ -21,14 +20,12 @@ error ActionNotAuthorized();
 
 /// @title Vaporwave Token Manager
 contract TokenManager is ReentrancyGuard {
-    using Counters for Counters.Counter;
-
     /// True if the contract has been initialized
     bool public isInitialized;
 
     /// The current action nonce
     /// @dev Increments for every action
-    Counters.Counter private _actionsNonce;
+    uint256 public actionsNonce;
     /// Minimum authorizations required for an action
     uint256 public minAuthorizations;
 
@@ -94,16 +91,16 @@ contract TokenManager is ReentrancyGuard {
         bytes32 action,
         uint256 nonce
     );
-    /// @notice Emitted when a signalSetGov action is signalled
+    /// @notice Emitted when a signalSetOwner action is signalled
     /// @param timelock The address of timelock contract
     /// @param target The address of target contract
-    /// @param gov The address of the new gov
+    /// @param owner The address of the new owner
     /// @param action The hash of the action (bytes32)
     /// @param nonce The nonce of the action
-    event SignalSetGov(
+    event SignalSetOwner(
         address timelock,
         address target,
-        address gov,
+        address owner,
         bytes32 action,
         uint256 nonce
     );
@@ -150,8 +147,8 @@ contract TokenManager is ReentrancyGuard {
         address _spender,
         uint256 _amount
     ) external nonReentrant onlyAdmin {
-        _actionsNonce.increment();
-        uint256 nonce = _actionsNonce.current();
+        actionsNonce++;
+        uint256 nonce = actionsNonce;
         bytes32 action = keccak256(
             abi.encodePacked("approve", _token, _spender, _amount, nonce)
         );
@@ -211,8 +208,8 @@ contract TokenManager is ReentrancyGuard {
         address _spender,
         uint256 _tokenId
     ) external nonReentrant onlyAdmin {
-        _actionsNonce.increment();
-        uint256 nonce = _actionsNonce.current();
+        actionsNonce++;
+        uint256 nonce = actionsNonce;
         bytes32 action = keccak256(
             abi.encodePacked("approveNFT", _token, _spender, _tokenId, nonce)
         );
@@ -272,8 +269,8 @@ contract TokenManager is ReentrancyGuard {
         address _spender,
         uint256[] memory _tokenIds
     ) external nonReentrant onlyAdmin {
-        _actionsNonce.increment();
-        uint256 nonce = _actionsNonce.current();
+        actionsNonce++;
+        uint256 nonce = actionsNonce;
         bytes32 action = keccak256(
             abi.encodePacked("approveNFTs", _token, _spender, _tokenIds, nonce)
         );
@@ -349,8 +346,8 @@ contract TokenManager is ReentrancyGuard {
         nonReentrant
         onlySigner
     {
-        _actionsNonce.increment();
-        uint256 nonce = _actionsNonce.current();
+        actionsNonce++;
+        uint256 nonce = actionsNonce;
         bytes32 action = keccak256(
             abi.encodePacked("setAdmin", _target, _admin, nonce)
         );
@@ -398,38 +395,50 @@ contract TokenManager is ReentrancyGuard {
         _clearAction(action, _nonce);
     }
 
-    /// @notice Signal a setGov action
+    /// @notice Signal a setOwner action
     /// @param _timelock The address of the timelock contract
     /// @param _target The address of the target contract
-    /// @param _gov The address of the new governor
-    function signalSetGov(
+    /// @param _owner The address of the new owner
+    function signalSetOwner(
         address _timelock,
         address _target,
-        address _gov
+        address _owner
     ) external nonReentrant onlyAdmin {
-        _actionsNonce.increment();
-        uint256 nonce = _actionsNonce.current();
+        actionsNonce++;
+        uint256 nonce = actionsNonce;
         bytes32 action = keccak256(
-            abi.encodePacked("signalSetGov", _timelock, _target, _gov, nonce)
+            abi.encodePacked(
+                "signalSetOwner",
+                _timelock,
+                _target,
+                _owner,
+                nonce
+            )
         );
         _setPendingAction(action, nonce);
         signedActions[msg.sender][action] = true;
-        emit SignalSetGov(_timelock, _target, _gov, action, nonce);
+        emit SignalSetOwner(_timelock, _target, _owner, action, nonce);
     }
 
-    /// @notice Sign a setGov action
+    /// @notice Sign a setOwner action
     /// @param _timelock The address of the timelock contract
     /// @param _target The address of the target contract
-    /// @param _gov The address of the new governor
+    /// @param _owner The address of the new owner
     /// @param _nonce The nonce of the action
-    function signSetGov(
+    function signSetOwner(
         address _timelock,
         address _target,
-        address _gov,
+        address _owner,
         uint256 _nonce
     ) external nonReentrant onlySigner {
         bytes32 action = keccak256(
-            abi.encodePacked("signalSetGov", _timelock, _target, _gov, _nonce)
+            abi.encodePacked(
+                "signalSetOwner",
+                _timelock,
+                _target,
+                _owner,
+                _nonce
+            )
         );
         _validateAction(action);
         if (signedActions[msg.sender][action]) {
@@ -439,31 +448,31 @@ contract TokenManager is ReentrancyGuard {
         emit SignAction(action, _nonce);
     }
 
-    /// @notice Call a setGov action
+    /// @notice Call a setOwner action
     /// @param _timelock The address of the timelock contract
     /// @param _target The address of the target contract
-    /// @param _gov The address of the new governor
+    /// @param _owner The address of the new owner
     /// @param _nonce The nonce of the action
-    function setGov(
+    function setOwner(
         address _timelock,
         address _target,
-        address _gov,
+        address _owner,
         uint256 _nonce
     ) external nonReentrant onlyAdmin {
         bytes32 action = keccak256(
-            abi.encodePacked("signalSetGov", _timelock, _target, _gov, _nonce)
+            abi.encodePacked(
+                "signalSetOwner",
+                _timelock,
+                _target,
+                _owner,
+                _nonce
+            )
         );
         _validateAction(action);
         _validateAuthorization(action);
 
-        ITimelock(_timelock).signalSetGov(_target, _gov);
+        ITimelock(_timelock).signalSetOwner(_target, _owner);
         _clearAction(action, _nonce);
-    }
-
-    /// @notice Get the actions nonce
-    /// @return The actions nonce
-    function actionsNonce() external view returns (uint256) {
-        return _actionsNonce.current();
     }
 
     /// @notice Initialize the contract

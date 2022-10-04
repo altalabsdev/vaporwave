@@ -20,7 +20,7 @@ const config: HardhatUserConfig = {
         version: "0.6.12", // Trisolaris
       },
       {
-        version: "0.8.16",
+        version: "0.8.17",
         settings: {
           viaIR: true,
           optimizer: {

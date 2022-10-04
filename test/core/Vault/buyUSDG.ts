@@ -97,12 +97,12 @@ describe("Vault.buyUSDV", function () {
 
   it("buyUSDV", async () => {
     await expect(vault.buyUSDV(bnb.address, wallet.address)).to.be.revertedWith(
-      "Vault: _token not whitelisted"
+      "Vault: _token not allowlisted"
     );
 
     await expect(
       vault.connect(user0).buyUSDV(bnb.address, user1.address)
-    ).to.be.revertedWith("Vault: _token not whitelisted");
+    ).to.be.revertedWith("Vault: _token not allowlisted");
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(300));
     await vault.setTokenConfig(...getBnbConfig(bnb, bnbPriceFeed));
@@ -170,7 +170,7 @@ describe("Vault.buyUSDV", function () {
   it("buyUSDV uses min price", async () => {
     await expect(
       vault.connect(user0).buyUSDV(bnb.address, user1.address)
-    ).to.be.revertedWith("Vault: _token not whitelisted");
+    ).to.be.revertedWith("Vault: _token not allowlisted");
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(300));
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(200));
@@ -198,7 +198,7 @@ describe("Vault.buyUSDV", function () {
   it("buyUSDV updates fees", async () => {
     await expect(
       vault.connect(user0).buyUSDV(bnb.address, user1.address)
-    ).to.be.revertedWith("Vault: _token not whitelisted");
+    ).to.be.revertedWith("Vault: _token not allowlisted");
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(300));
     await vault.setTokenConfig(...getBnbConfig(bnb, bnbPriceFeed));

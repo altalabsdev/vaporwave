@@ -74,8 +74,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
 
     /// Helper to avoid truncation errors in price calculations
     uint128 public constant PRICE_PRECISION = 1e30;
-    /// Helper to avoid truncation errors in usdv calculations
-    uint128 public constant USDV_PRECISION = 1e18;
 
     /// Mapping of increase orders by account
     mapping(address => mapping(uint256 => IncreaseOrder)) public increaseOrders;
@@ -92,8 +90,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
 
     /// Wrapped Ether (WETH) token address
     address public weth;
-    /// USD Vaporwave (USDV) token address
-    address public usdv;
     /// The router address
     address public router;
     /// The vault address
@@ -104,177 +100,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
     uint256 public minPurchaseTokenAmountUsd;
     /// True if the contract has been initialized
     bool public isInitialized;
-
-    /// @notice Emitted when an increase order is created
-    event CreateIncreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address purchaseToken,
-        uint256 purchaseTokenAmount,
-        address collateralToken,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an increase order is cancelled
-    event CancelIncreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address purchaseToken,
-        uint256 purchaseTokenAmount,
-        address collateralToken,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an increase order is executed
-    event ExecuteIncreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address purchaseToken,
-        uint256 purchaseTokenAmount,
-        address collateralToken,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold,
-        uint256 executionFee,
-        uint256 executionPrice
-    );
-    /// @notice Emitted when an increase order is updated
-    event UpdateIncreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address collateralToken,
-        address indexToken,
-        bool isLong,
-        uint256 sizeDelta,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold
-    );
-    /// @notice Emitted when an decrease order is created
-    event CreateDecreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address collateralToken,
-        uint256 collateralDelta,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an decrease order is cancelled
-    event CancelDecreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address collateralToken,
-        uint256 collateralDelta,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an decrease order is executed
-    event ExecuteDecreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address collateralToken,
-        uint256 collateralDelta,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold,
-        uint256 executionFee,
-        uint256 executionPrice
-    );
-    /// @notice Emitted when an decrease order is updated
-    event UpdateDecreaseOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address collateralToken,
-        uint256 collateralDelta,
-        address indexToken,
-        uint256 sizeDelta,
-        bool isLong,
-        uint256 triggerPrice,
-        bool triggerAboveThreshold
-    );
-    /// @notice Emitted when an swap order is created
-    event CreateSwapOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address[] path,
-        uint256 amountIn,
-        uint256 minOut,
-        uint256 triggerRatio,
-        bool triggerAboveThreshold,
-        bool shouldUnwrap,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an swap order is cancelled
-    event CancelSwapOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address[] path,
-        uint256 amountIn,
-        uint256 minOut,
-        uint256 triggerRatio,
-        bool triggerAboveThreshold,
-        bool shouldUnwrap,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an swap order is updated
-    event UpdateSwapOrder(
-        address indexed account,
-        uint256 ordexIndex,
-        address[] path,
-        uint256 amountIn,
-        uint256 minOut,
-        uint256 triggerRatio,
-        bool triggerAboveThreshold,
-        bool shouldUnwrap,
-        uint256 executionFee
-    );
-    /// @notice Emitted when an swap order is executed
-    event ExecuteSwapOrder(
-        address indexed account,
-        uint256 orderIndex,
-        address[] path,
-        uint256 amountIn,
-        uint256 minOut,
-        uint256 amountOut,
-        uint256 triggerRatio,
-        bool triggerAboveThreshold,
-        bool shouldUnwrap,
-        uint256 executionFee
-    );
-    /// @notice Emitted when the contract is initialized
-    event Initialize(
-        address router,
-        address vault,
-        address weth,
-        address usdv,
-        uint256 minExecutionFee,
-        uint256 minPurchaseTokenAmountUsd
-    );
-    /// @notice Emitted when the minimum execution fee is updated
-    /// @param minExecutionFee The new minimum execution fee
-    event UpdateMinExecutionFee(uint256 minExecutionFee);
-    /// @notice Emitted when the minimum purchase token amount in USD is updated
-    /// @param minPurchaseTokenAmountUsd The new minimum purchase token amount in USD
-    event UpdateMinPurchaseTokenAmountUsd(uint256 minPurchaseTokenAmountUsd);
 
     constructor() {
         // solhint-disable-next-line avoid-tx-origin
@@ -292,14 +117,12 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
     /// @param _router The router contract address
     /// @param _vault The vault contract address
     /// @param _weth The WETH contract address
-    /// @param _usdv The USDV contract address
     /// @param _minExecutionFee The minimum execution fee
     /// @param _minPurchaseTokenAmountUsd The minimum purchase token amount in USD
     function initialize(
         address _router,
         address _vault,
         address _weth,
-        address _usdv,
         uint256 _minExecutionFee,
         uint256 _minPurchaseTokenAmountUsd
     ) external onlyOwner {
@@ -311,7 +134,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         router = _router;
         vault = _vault;
         weth = _weth;
-        usdv = _usdv;
         minExecutionFee = _minExecutionFee;
         minPurchaseTokenAmountUsd = _minPurchaseTokenAmountUsd;
 
@@ -319,7 +141,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
             _router,
             _vault,
             _weth,
-            _usdv,
             _minExecutionFee,
             _minPurchaseTokenAmountUsd
         );
@@ -466,11 +287,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         );
     }
 
-    /// @notice Execute a swap order
-    /// @dev Emits an event `ExecuteSwapOrder`
-    /// @param _account The account that created the swap order
-    /// @param _orderIndex The index of the order to execute
-    /// @param _feeReceiver The address to receive the fees
+    /// @inheritdoc IOrderBook
     function executeSwapOrder(
         address _account,
         uint256 _orderIndex,
@@ -643,11 +460,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         );
     }
 
-    /// @notice Execute an increase order
-    /// @dev Emits an `ExecuteIncreaseOrder` event
-    /// @param _address The account that owns the order
-    /// @param _orderIndex The index of the increase order
-    /// @param _feeReceiver The address to receive the fees
+    /// @inheritdoc IOrderBook
     function executeIncreaseOrder(
         address _address,
         uint256 _orderIndex,
@@ -731,7 +544,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         _transferInETH();
 
         if (msg.value < minExecutionFee) {
-            // TODO: should be <= or <?
             revert InvalidValue();
         }
 
@@ -747,11 +559,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         );
     }
 
-    /// @notice Execute a decrease order
-    /// @dev Emits an `ExecuteDecreaseOrder` event
-    /// @param _address The account that owns the decrease order
-    /// @param _orderIndex The index of the decrease order
-    /// @param _feeReceiver The address to receive the fees
+    /// @inheritdoc IOrderBook
     function executeDecreaseOrder(
         address _address,
         uint256 _orderIndex,
@@ -949,9 +757,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         );
     }
 
-    /// @notice Get swap order
-    /// @param _account The account address
-    /// @param _orderIndex The index of the order
+    /// @inheritdoc IOrderBook
     function getSwapOrder(address _account, uint256 _orderIndex)
         public
         view
@@ -981,25 +787,6 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         );
     }
 
-    /// @notice Get minimum price of token in USDV
-    /// @param _otherToken The token to get the minimum price of
-    /// @return The minimum price of the token in USDV
-    function getUsdvMinPrice(address _otherToken)
-        public
-        view
-        returns (uint256)
-    {
-        // USDV_PRECISION is the same as 1 USDV
-        uint256 redemptionAmount = IVault(vault).getRedemptionAmount(
-            _otherToken,
-            USDV_PRECISION
-        );
-        uint256 otherTokenPrice = IVault(vault).getMinPrice(_otherToken);
-
-        uint256 otherTokenDecimals = IVault(vault).tokenDecimals(_otherToken);
-        return (redemptionAmount * otherTokenPrice) / (10**otherTokenDecimals);
-    }
-
     /// @notice Validate the swap order price is above the trigger threshold
     /// @param _path The path of the token swap
     /// @param _triggerRatio The trigger ratio for the swap
@@ -1020,24 +807,8 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         uint256 tokenAPrice;
         uint256 tokenBPrice;
 
-        // 1. USDV doesn't have a price feed so we need to calculate it based on redemption amount of a specific token
-        // That's why USDV price in USD can vary depending on the redepmtion token
-        // 2. In complex scenarios with path=[USDV, ETH, BTC] we need to know how much ETH we'll get for provided USDV
-        // to know how much BTC will be received
-        // That's why in such scenario ETH should be used to determine price of USDV
-        if (tokenA == usdv) {
-            // with both _path.length == 2 or 3 we need usdv price against _path[1]
-            // tokenAPrice = getUsdvMinPrice(_path[1]);
-            tokenAPrice = 0;
-        } else {
-            tokenAPrice = IVault(vault).getMinPrice(tokenA);
-        }
-
-        if (tokenB == usdv) {
-            tokenBPrice = PRICE_PRECISION;
-        } else {
-            tokenBPrice = IVault(vault).getMaxPrice(tokenB);
-        }
+        tokenAPrice = IVault(vault).getMinPrice(tokenA);
+        tokenBPrice = IVault(vault).getMaxPrice(tokenB);
 
         uint256 currentRatio = (tokenBPrice * PRICE_PRECISION) / tokenAPrice;
 
@@ -1071,9 +842,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         return (currentPrice, isPriceValid);
     }
 
-    /// @notice Get a decrease order
-    /// @param _account The account that created the order
-    /// @param _orderIndex The index of the order to get
+    /// @inheritdoc IOrderBook
     function getDecreaseOrder(address _account, uint256 _orderIndex)
         public
         view
@@ -1101,9 +870,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         );
     }
 
-    /// @notice Get an increase order
-    /// @param _account The account that created the order
-    /// @param _orderIndex The index of the order to get
+    /// @inheritdoc IOrderBook
     function getIncreaseOrder(address _account, uint256 _orderIndex)
         public
         view
@@ -1288,18 +1055,7 @@ contract OrderBook is ReentrancyGuard, Ownable, IOrderBook {
         uint256 _minOut,
         address _receiver
     ) private returns (uint256) {
-        uint256 amountOut;
-
-        if (_tokenOut == usdv) {
-            // buyUSDV
-            amountOut = IVault(vault).buyUSDV(_tokenIn, _receiver);
-        } else if (_tokenIn == usdv) {
-            // sellUSDV
-            amountOut = IVault(vault).sellUSDV(_tokenOut, _receiver);
-        } else {
-            // swap
-            amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
-        }
+        uint256 amountOut = IVault(vault).swap(_tokenIn, _tokenOut, _receiver);
 
         if (amountOut < _minOut) {
             revert InsufficientAmountOut();

@@ -169,7 +169,7 @@ describe("Vault.increaseLongPosition", function () {
           toUsd(1000),
           true
         )
-    ).to.be.revertedWith("Vault: _collateralToken not whitelisted");
+    ).to.be.revertedWith("Vault: _collateralToken not allowlisted");
 
     await btcPriceFeed.setLatestAnswer(toChainlinkPrice(60000));
     await vault.setTokenConfig(...getBtcConfig(btc, btcPriceFeed));

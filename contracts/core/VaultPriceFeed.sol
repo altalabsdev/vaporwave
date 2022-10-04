@@ -7,6 +7,7 @@ import "./interfaces/IVaultPriceFeed.sol";
 import "../oracle/interfaces/IPriceFeed.sol";
 import "../oracle/interfaces/ISecondaryPriceFeed.sol";
 import "../amm/interfaces/IPancakePair.sol";
+import "../amm/interfaces/IUniswapV2Oracle.sol";
 
 /// Sender does not have permission to call this function
 error Forbidden();
@@ -25,45 +26,63 @@ error InvalidPrice();
 
 /// @title Vaporwave Vault Price Feed
 contract VaultPriceFeed is Ownable, IVaultPriceFeed {
+    /// @notice The max spread basis points is 50
+    uint8 public constant MAX_SPREAD_BASIS_POINTS = 50;
+    /// @notice The max basis points adjustment is 20
+    uint8 public constant MAX_ADJUSTMENT_BASIS_POINTS = 20;
+    /// @notice The max adjustment interval is 2 hours (7,200 seconds)
+    uint16 public constant MAX_ADJUSTMENT_INTERVAL = 2 hours; // 7200 seconds
+    /// @notice Factor used to avoid decimals in basis points calculations
+    uint16 public constant BASIS_POINTS_DIVISOR = 10000;
+    /// @notice Calculation helper to avoid truncation errors
     uint128 public constant PRICE_PRECISION = 1e30;
-    uint256 public constant ONE_USD = PRICE_PRECISION;
-    uint256 public constant BASIS_POINTS_DIVISOR = 10000;
-    uint256 public constant MAX_SPREAD_BASIS_POINTS = 50;
-    uint256 public constant MAX_ADJUSTMENT_INTERVAL = 2 hours;
-    uint256 public constant MAX_ADJUSTMENT_BASIS_POINTS = 20;
+    /// @notice Calculation helper to avoid truncation errors
+    uint128 public constant ONE_USD = PRICE_PRECISION;
 
+    /// @notice If the price feed is AMM pricing enabled
     bool public isAmmEnabled = true;
+    /// @notice If the price feed is secondary pricing enabled
     bool public isSecondaryPriceEnabled = true;
-    bool public useV2Pricing = false;
-    bool public favorPrimaryPrice = false;
+    /// @notice If the price feed can use v2 pricing
+    bool public useV2Pricing;
+
+    /// @notice The number of rounds to sample from the price feed
     uint256 public priceSampleSpace = 3;
-    uint256 public maxStrictPriceDeviation = 0;
-    address public secondaryPriceFeed;
+    /// @notice Basis points for AMM price deviation allowance
     uint256 public spreadThresholdBasisPoints = 30;
+    /// @notice The max allowed price deviation for strict stablecoins to return 1 USD
+    uint256 public maxStrictPriceDeviation;
+    /// @notice The address of the secondary price feed
+    address public secondaryPriceFeed;
 
-    // make variables private to reduce contract size
-    address private btc;
-    address private eth;
-    address private bnb;
-    // TODO: change tokens
-    address private bnbBusd;
-    address private ethBnb;
-    address private btcBnb;
+    /// @notice Mapping of tokens to amm oracles
+    mapping(address => address) public ammOracles;
 
+    /// @notice Mapping of tokens to price feeds
     mapping(address => address) public priceFeeds;
+    /// @notice Mapping of price feeds to decimals
     mapping(address => uint256) public priceDecimals;
-    mapping(address => uint256) public spreadBasisPoints;
-    // Chainlink can return prices for stablecoins
-    // that differs from 1 USD by a larger percentage than stableSwapFeeBasisPoints
-    // we use strictStableTokens to cap the price to 1 USD
-    // this allows us to configure stablecoins like DAI as being a stableToken
-    // while not being a strictStableToken
-    mapping(address => bool) public strictStableTokens;
+    /// @notice Mapping of tokens to their the spread basis points
+    mapping(address => uint8) public spreadBasisPoints;
 
+    /// @dev Chainlink can return prices for stablecoins
+    /// @dev that differs from 1 USD by a larger percentage than stableSwapFeeBasisPoints
+    /// @dev we use strictStableTokens to cap the price to 1 USD
+    /// @dev this allows us to configure stablecoins like DAI as being a stableToken
+    /// @dev while not being a strictStableToken
+    /// @notice Mapping of strict stablecoins
+    mapping(address => bool) public strictStableTokens;
+    /// Mapping of tokens to their adjustment basis points
     mapping(address => uint256) public override adjustmentBasisPoints;
+    /// True if token adjustment is additive, false if deductive
     mapping(address => bool) public override isAdjustmentAdditive;
+    /// Mapping of tokens to their last adjustment time
     mapping(address => uint256) public lastAdjustmentTimings;
 
+    /// @notice Set the adjustment factors for `_token`
+    /// @param _token The token to set the adjustment factors for
+    /// @param _isAdditive True if the adjustment is additive, false if subtractive
+    /// @param _adjustmentBps The adjustment basis points
     function setAdjustment(
         address _token,
         bool _isAdditive,
@@ -71,6 +90,7 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
     ) external override onlyOwner {
         if (
             lastAdjustmentTimings[_token] + MAX_ADJUSTMENT_INTERVAL >=
+            // solhint-disable-next-line not-rely-on-time
             block.timestamp
         ) {
             revert AdjustmentCooldown();
@@ -80,6 +100,7 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         }
         isAdjustmentAdditive[_token] = _isAdditive;
         adjustmentBasisPoints[_token] = _adjustmentBps;
+        // solhint-disable-next-line not-rely-on-time
         lastAdjustmentTimings[_token] = block.timestamp;
     }
 
@@ -105,6 +126,8 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         isSecondaryPriceEnabled = _isEnabled;
     }
 
+    /// @notice Set the secondary price feed to `_secondaryPriceFeed`
+    /// @param _secondaryPriceFeed The address of the secondary price feed
     function setSecondaryPriceFeed(address _secondaryPriceFeed)
         external
         onlyOwner
@@ -112,27 +135,20 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         secondaryPriceFeed = _secondaryPriceFeed;
     }
 
-    function setTokens(
-        address _btc,
-        address _eth,
-        address _bnb
-    ) external onlyOwner {
-        btc = _btc;
-        eth = _eth;
-        bnb = _bnb;
+    /// @notice Set the AMM oracle for `_token` to `_ammOracle`
+    /// @param _token The token to set the AMM oracle for
+    /// @param _ammOracle The address of the AMM oracle
+    function setAmmOracle(address _token, address _ammOracle)
+        external
+        onlyOwner
+    {
+        ammOracles[_token] = _ammOracle;
     }
 
-    function setPairs(
-        address _bnbBusd,
-        address _ethBnb,
-        address _btcBnb
-    ) external onlyOwner {
-        bnbBusd = _bnbBusd;
-        ethBnb = _ethBnb;
-        btcBnb = _btcBnb;
-    }
-
-    function setSpreadBasisPoints(address _token, uint256 _spreadBasisPoints)
+    /// @notice Set the spread basis points for `_token` to `_spreadBasisPoints`
+    /// @param _token The token to set the spread basis points for
+    /// @param _spreadBasisPoints The spread basis points for the token
+    function setSpreadBasisPoints(address _token, uint8 _spreadBasisPoints)
         external
         override
         onlyOwner
@@ -143,6 +159,8 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         spreadBasisPoints[_token] = _spreadBasisPoints;
     }
 
+    /// @notice Set the spread threshold basis points
+    /// @param _spreadThresholdBasisPoints The spread threshold basis points
     function setSpreadThresholdBasisPoints(uint256 _spreadThresholdBasisPoints)
         external
         override
@@ -151,14 +169,8 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         spreadThresholdBasisPoints = _spreadThresholdBasisPoints;
     }
 
-    function setFavorPrimaryPrice(bool _favorPrimaryPrice)
-        external
-        override
-        onlyOwner
-    {
-        favorPrimaryPrice = _favorPrimaryPrice;
-    }
-
+    /// @notice Set the price sample space to `_priceSampleSpace`
+    /// @param _priceSampleSpace The price sample space
     function setPriceSampleSpace(uint256 _priceSampleSpace)
         external
         override
@@ -170,6 +182,8 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         priceSampleSpace = _priceSampleSpace;
     }
 
+    /// @notice Set the max price deviation for strict stablecoins to `_maxStrictPriceDeviation`
+    /// @param _maxStrictPriceDeviation The max strict price deviation
     function setMaxStrictPriceDeviation(uint256 _maxStrictPriceDeviation)
         external
         override
@@ -178,6 +192,11 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         maxStrictPriceDeviation = _maxStrictPriceDeviation;
     }
 
+    /// @notice Set the token configurations variables for `_token`
+    /// @param _token The token address
+    /// @param _priceFeed The price feed address
+    /// @param _priceDecimals The decimals of the price feed
+    /// @param _isStrictStable True if the token is a strict stablecoin, false otherwise
     function setTokenConfig(
         address _token,
         address _priceFeed,
@@ -189,11 +208,14 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         strictStableTokens[_token] = _isStrictStable;
     }
 
+    /// @notice Get the price for `_token`
+    /// @param _token The token address
+    /// @param _maximise True if the price should be maximized, false to minimize
+    /// @param _includeAmmPrice True to include AMM pricing, false to exclude
     function getPrice(
         address _token,
         bool _maximise,
-        bool _includeAmmPrice,
-        bool /* _useSwapPricing */
+        bool _includeAmmPrice
     ) public view override returns (uint256) {
         uint256 price = useV2Pricing
             ? getPriceV2(_token, _maximise, _includeAmmPrice)
@@ -216,6 +238,11 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         return price;
     }
 
+    /// @notice Get the price for `_token`
+    /// @dev This function does not use v2 AMM pricing
+    /// @param _token The token address
+    /// @param _maximise True if the price should be maximized, false to minimize
+    /// @param _includeAmmPrice True to include AMM pricing, false to exclude
     function getPriceV1(
         address _token,
         bool _maximise,
@@ -271,6 +298,11 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
             BASIS_POINTS_DIVISOR;
     }
 
+    /// @notice Get the price for `_token`
+    /// @dev This function uses v2 AMM pricing
+    /// @param _token The token address
+    /// @param _maximise True if the price should be maximized, false to minimize
+    /// @param _includeAmmPrice True to include AMM pricing, false to exclude
     function getPriceV2(
         address _token,
         bool _maximise,
@@ -318,6 +350,11 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
             BASIS_POINTS_DIVISOR;
     }
 
+    /// @notice Get the amm price for `_token`
+    /// @dev This function adds an additional boundary check between the primary price and the amm price
+    /// @param _token The token address
+    /// @param _maximise True if the price should be maximized, false to minimize
+    /// @param _primaryPrice The primary price
     function getAmmPriceV2(
         address _token,
         bool _maximise,
@@ -335,10 +372,7 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
             diff * BASIS_POINTS_DIVISOR <
             _primaryPrice * spreadThresholdBasisPoints
         ) {
-            if (favorPrimaryPrice) {
-                return _primaryPrice;
-            }
-            return ammPrice;
+            return _primaryPrice;
         }
 
         if (_maximise && ammPrice > _primaryPrice) {
@@ -352,6 +386,9 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         return _primaryPrice;
     }
 
+    /// @notice Get the primary price for `_token`
+    /// @param _token The token address
+    /// @param _maximise True if the price should be maximized, false to minimize
     function getPrimaryPrice(address _token, bool _maximise)
         public
         view
@@ -362,16 +399,6 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         if (priceFeedAddress == address(0)) {
             revert InvalidPriceFeed();
         }
-
-        // if (chainlinkFlags != address(0)) {
-        //     bool isRaised = IChainlinkFlags(chainlinkFlags).getFlag(
-        //         FLAG_ARBITRUM_SEQ_OFFLINE
-        //     );
-        //     if (isRaised) {
-        //         // If flag is raised we shouldn't perform any critical operations
-        //         revert("Chainlink feeds are not being updated");
-        //     }
-        // }
 
         IPriceFeed priceFeed = IPriceFeed(priceFeedAddress);
 
@@ -420,6 +447,10 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
         return (price * PRICE_PRECISION) / (10**_priceDecimals);
     }
 
+    /// @notice Get the secondary price for `_token`
+    /// @param _token The token address
+    /// @param _referencePrice The reference price
+    /// @param _maximise True if the price should be maximized, false to minimize
     function getSecondaryPrice(
         address _token,
         uint256 _referencePrice,
@@ -436,54 +467,21 @@ contract VaultPriceFeed is Ownable, IVaultPriceFeed {
             );
     }
 
+    /// @notice Get the amm price for `_token`
+    /// @dev Set isAmmEnabled to true to apply TWAP amm oracle pricing
+    /// @param _token The token address
     function getAmmPrice(address _token)
         public
         view
         override
         returns (uint256)
     {
-        if (_token == bnb) {
-            // for bnbBusd, reserve0: BNB, reserve1: BUSD
-            return getPairPrice(bnbBusd, true);
-        }
-
-        if (_token == eth) {
-            uint256 price0 = getPairPrice(bnbBusd, true);
-            // for ethBnb, reserve0: ETH, reserve1: BNB
-            uint256 price1 = getPairPrice(ethBnb, true);
-            // this calculation could overflow if (price0 / 10**30) * (price1 / 10**30) is more than 10**17
-            return (price0 * price1) / PRICE_PRECISION;
-        }
-
-        if (_token == btc) {
-            uint256 price0 = getPairPrice(bnbBusd, true);
-            // for btcBnb, reserve0: BTC, reserve1: BNB
-            uint256 price1 = getPairPrice(btcBnb, true);
-            // this calculation could overflow if (price0 / 10**30) * (price1 / 10**30) is more than 10**17
-            return (price0 * price1) / PRICE_PRECISION;
+        if (ammOracles[_token] != address(0)) {
+            return
+                IUniswapV2Oracle(ammOracles[_token]).consult(_token, 1e18) *
+                PRICE_PRECISION;
         }
 
         return 0;
-    }
-
-    // if divByReserve0: calculate price as reserve1 / reserve0
-    // if !divByReserve1: calculate price as reserve0 / reserve1
-    function getPairPrice(address _pair, bool _divByReserve0)
-        public
-        view
-        returns (uint256)
-    {
-        (uint256 reserve0, uint256 reserve1, ) = IPancakePair(_pair)
-            .getReserves();
-        if (_divByReserve0) {
-            if (reserve0 == 0) {
-                return 0;
-            }
-            return (reserve1 * PRICE_PRECISION) / reserve0;
-        }
-        if (reserve1 == 0) {
-            return 0;
-        }
-        return (reserve0 * PRICE_PRECISION) / reserve1;
     }
 }

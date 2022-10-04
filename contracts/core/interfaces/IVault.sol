@@ -9,8 +9,6 @@ interface IVault {
 
     function setMaxLeverage(uint256 _maxLeverage) external;
 
-    function setInManagerMode(bool _inManagerMode) external;
-
     function setManager(address _manager, bool _isManager) external;
 
     function setIsSwapEnabled(bool _isSwapEnabled) external;
@@ -19,9 +17,9 @@ interface IVault {
 
     function setMaxGasPrice(uint256 _maxGasPrice) external;
 
-    function setUsdvAmount(address _token, uint256 _amount) external;
-
     function setBufferAmount(address _token, uint256 _amount) external;
+
+    function setMaxUsdAmount(address _token, uint256 _amount) external;
 
     function setMaxGlobalShortSize(address _token, uint256 _amount) external;
 
@@ -53,7 +51,6 @@ interface IVault {
         uint256 _tokenDecimals,
         uint256 _redemptionBps,
         uint256 _minProfitBps,
-        uint256 _maxUsdvAmount,
         bool _isStable,
         bool _isShortable
     ) external;
@@ -66,13 +63,13 @@ interface IVault {
 
     function directPoolDeposit(address _token) external;
 
-    function buyUSDV(address _token, address _receiver)
-        external
-        returns (uint256);
+    function buy(address _token) external returns (uint256);
 
-    function sellUSDV(address _token, address _receiver)
-        external
-        returns (uint256);
+    function sell(
+        address _token,
+        address _receiver,
+        uint256 _usdAmount
+    ) external returns (uint256);
 
     function swap(
         address _tokenIn,
@@ -114,11 +111,9 @@ interface IVault {
 
     function router() external view returns (address);
 
-    function usdv() external view returns (address);
-
     function owner() external view returns (address);
 
-    function whitelistedTokenCount() external view returns (uint256);
+    function allowlistedTokenCount() external view returns (uint256);
 
     function maxLeverage() external view returns (uint256);
 
@@ -130,12 +125,7 @@ interface IVault {
 
     function totalTokenWeights() external view returns (uint256);
 
-    function getTargetUsdvAmount(address _token)
-        external
-        view
-        returns (uint256);
-
-    function inManagerMode() external view returns (bool);
+    function getTargetUsdAmount(address _token) external view returns (uint256);
 
     function inPrivateLiquidationMode() external view returns (bool);
 
@@ -179,11 +169,13 @@ interface IVault {
 
     function getFeeBasisPoints(
         address _token,
-        uint256 _usdvDelta,
+        uint256 _usdDelta,
         uint256 _feeBasisPoints,
         uint256 _taxBasisPoints,
         bool _increment
     ) external view returns (uint256);
+
+    function getTokenAum(address _token) external view returns (uint256);
 
     function liquidationFeeUsd() external view returns (uint256);
 
@@ -199,11 +191,11 @@ interface IVault {
 
     function marginFeeBasisPoints() external view returns (uint256);
 
-    function allWhitelistedTokensLength() external view returns (uint256);
+    function allAllowlistedTokensLength() external view returns (uint256);
 
-    function allWhitelistedTokens(uint256) external view returns (address);
+    function allAllowlistedTokens(uint256) external view returns (address);
 
-    function whitelistedTokens(address _token) external view returns (bool);
+    function allowlistedTokens(address _token) external view returns (bool);
 
     function stableTokens(address _token) external view returns (bool);
 
@@ -235,11 +227,9 @@ interface IVault {
 
     function reservedAmounts(address _token) external view returns (uint256);
 
-    function usdvAmounts(address _token) external view returns (uint256);
+    function maxUsdAmounts(address _token) external view returns (uint256);
 
-    function maxUsdvAmounts(address _token) external view returns (uint256);
-
-    function getRedemptionAmount(address _token, uint256 _usdvAmount)
+    function getRedemptionAmount(address _token, uint256 _usdAmount)
         external
         view
         returns (uint256);

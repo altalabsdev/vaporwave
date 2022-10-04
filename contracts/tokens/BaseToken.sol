@@ -328,7 +328,9 @@ contract BaseToken is IERC20, IBaseToken, Ownable {
         }
 
         if (inPrivateTransferMode) {
-            _validateHandler();
+            if (!isHandler[msg.sender]) {
+                revert InvalidHandler();
+            }
         }
 
         _updateRewards(_sender);
@@ -372,12 +374,6 @@ contract BaseToken is IERC20, IBaseToken, Ownable {
         for (uint256 i = 0; i < yieldTrackers.length; i++) {
             address yieldTracker = yieldTrackers[i];
             IYieldTracker(yieldTracker).updateRewards(_account);
-        }
-    }
-
-    function _validateHandler() private view {
-        if (!isHandler[msg.sender]) {
-            revert InvalidHandler();
         }
     }
 }

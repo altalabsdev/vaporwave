@@ -95,7 +95,7 @@ describe("Vault.sellUSDV", function () {
   it("sellUSDV", async () => {
     await expect(
       vault.connect(user0).sellUSDV(bnb.address, user1.address)
-    ).to.be.revertedWith("Vault: _token not whitelisted");
+    ).to.be.revertedWith("Vault: _token not allowlisted");
 
     await bnbPriceFeed.setLatestAnswer(toChainlinkPrice(300));
     await vault.setTokenConfig(...getBnbConfig(bnb, bnbPriceFeed));

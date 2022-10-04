@@ -65,23 +65,17 @@ contract VwaveFloor is ReentrancyGuard, TokenManager {
         multiplierPrecision = _multiplierPrecision;
     }
 
-    /// @notice Initialize the token manager contract
-    /// @param _signers An array of signers
-    function initialize(address[] memory _signers) public override onlyAdmin {
-        TokenManager.initialize(_signers);
-    }
-
     /// @notice Set `_handler` as a handler: `_isHandler`
     /// @param _handler The address of the handler
     /// @param _isHandler True if the handler is to be added, false if it is to be removed
-    function setHandler(address _handler, bool _isHandler) public onlyAdmin {
+    function setHandler(address _handler, bool _isHandler) external onlyAdmin {
         isHandler[_handler] = _isHandler;
     }
 
     /// @notice Set the backed supply
     /// @dev Backed supply can only increase
     /// @param _backedSupply The new backed supply
-    function setBackedSupply(uint256 _backedSupply) public onlyAdmin {
+    function setBackedSupply(uint256 _backedSupply) external onlyAdmin {
         if (_backedSupply <= backedSupply) {
             revert InvalidBackedSupply();
         }
@@ -91,7 +85,7 @@ contract VwaveFloor is ReentrancyGuard, TokenManager {
     /// @notice Set the mint multiplier
     /// @dev Mint multiplier can only increase
     /// @param _mintMultiplier The new mint multiplier
-    function setMintMultiplier(uint256 _mintMultiplier) public onlyAdmin {
+    function setMintMultiplier(uint256 _mintMultiplier) external onlyAdmin {
         if (_mintMultiplier <= mintMultiplier) {
             revert InvalidMintMultiplier();
         }
@@ -108,7 +102,7 @@ contract VwaveFloor is ReentrancyGuard, TokenManager {
         uint256 _amount,
         uint256 _maxCost,
         address _receiver
-    ) public onlyHandler nonReentrant returns (uint256) {
+    ) external onlyHandler nonReentrant returns (uint256) {
         if (_amount == 0) {
             revert InvalidAmount();
         }
@@ -140,7 +134,7 @@ contract VwaveFloor is ReentrancyGuard, TokenManager {
         uint256 _amount,
         uint256 _minOut,
         address _receiver
-    ) public onlyHandler nonReentrant returns (uint256) {
+    ) external onlyHandler nonReentrant returns (uint256) {
         if (_amount == 0) {
             revert InvalidAmount();
         }
@@ -156,6 +150,12 @@ contract VwaveFloor is ReentrancyGuard, TokenManager {
         IERC20(reserveToken).safeTransfer(_receiver, amountOut);
 
         return amountOut;
+    }
+
+    /// @notice Initialize the token manager contract
+    /// @param _signers An array of signers
+    function initialize(address[] memory _signers) public override onlyAdmin {
+        TokenManager.initialize(_signers);
     }
 
     /// @notice Get the mint price

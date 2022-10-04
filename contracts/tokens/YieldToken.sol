@@ -20,7 +20,7 @@ error InsufficientAllowance();
 error InsufficientBalance();
 /// Token cannot interact with the zero address
 error ZeroAddress();
-/// Sender is not whitelisted and contract is in whitelist mode
+/// Sender is not allowlisted and contract is in allowlist mode
 error NotWhitelisted();
 
 /// @title Vaporwave Yield Token
@@ -49,10 +49,10 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
     /// Mapping of admins
     mapping(address => bool) public admins;
 
-    /// True if contract is in whitelist mode
+    /// True if contract is in allowlist mode
     bool public inWhitelistMode;
-    /// Mapping of whitelisted handlers
-    mapping(address => bool) public whitelistedHandlers;
+    /// Mapping of allowlisted handlers
+    mapping(address => bool) public allowlistedHandlers;
 
     modifier onlyAdmin() {
         if (!admins[msg.sender]) {
@@ -117,20 +117,20 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         IERC20(_token).safeTransfer(_account, _amount);
     }
 
-    /// @notice Set the contract in whitelist mode: `_inWhitelistMode`
-    /// @param _inWhitelistMode True if contract is in whitelist mode
+    /// @notice Set the contract in allowlist mode: `_inWhitelistMode`
+    /// @param _inWhitelistMode True if contract is in allowlist mode
     function setInWhitelistMode(bool _inWhitelistMode) external onlyOwner {
         inWhitelistMode = _inWhitelistMode;
     }
 
-    /// @notice Set `_handler` as a whitelisted handler: `_isWhitelisted`
+    /// @notice Set `_handler` as a allowlisted handler: `_isWhitelisted`
     /// @param _handler The address of the handler
-    /// @param _isWhitelisted True if handler is whitelisted, false otherwise
+    /// @param _isWhitelisted True if handler is allowlisted, false otherwise
     function setWhitelistedHandler(address _handler, bool _isWhitelisted)
         external
         onlyOwner
     {
-        whitelistedHandlers[_handler] = _isWhitelisted;
+        allowlistedHandlers[_handler] = _isWhitelisted;
     }
 
     /// @notice Add a non-staking account
@@ -325,7 +325,7 @@ contract YieldToken is IERC20, IYieldToken, Ownable {
         }
 
         if (inWhitelistMode) {
-            if (!whitelistedHandlers[msg.sender]) {
+            if (!allowlistedHandlers[msg.sender]) {
                 revert NotWhitelisted();
             }
         }

@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import "./interfaces/IVlpManager.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IVaultUtils.sol";
 
@@ -14,8 +15,8 @@ error FeesExceedCollateral();
 /// Max leverage amount is exceeded
 error MaxLeverageExceeded();
 
-// TODO finish NatSpec
 /// @title Vaporwave Vault Utils
+/// @dev A utility contract to validate requests and calculate fees
 contract VaultUtils is IVaultUtils, Ownable {
     struct Position {
         uint256 size;
@@ -28,15 +29,18 @@ contract VaultUtils is IVaultUtils, Ownable {
     }
 
     /// The vault address
-    IVault public vault;
+    IVault public immutable vault;
+    /// The vlp manager address
+    IVlpManager public immutable vlpManager;
 
     /// Helper to avoid truncation errors in basis points calculations
     uint16 public constant BASIS_POINTS_DIVISOR = 10000;
     /// Helper to avoid truncation errors in funding rate calculations
     uint32 public constant FUNDING_RATE_PRECISION = 1e6;
 
-    constructor(IVault _vault) {
+    constructor(IVault _vault, IVlpManager _vlpManager) {
         vault = _vault;
+        vlpManager = _vlpManager;
     }
 
     /// @dev Function does nothing, included to satisfy the IVaultUtils interface
@@ -45,9 +49,8 @@ contract VaultUtils is IVaultUtils, Ownable {
         address, /* _collateralToken */
         address, /* _indexToken */
         uint256, /* _sizeDelta */
-        bool /* _isLong */
-    ) external view override // solhint-disable-next-line no-empty-blocks
-    {
+        bool /* _isLong */ // solhint-disable-next-line no-empty-blocks
+    ) external view override {
         // no additional validations
     }
 
@@ -59,12 +62,17 @@ contract VaultUtils is IVaultUtils, Ownable {
         uint256, /* _collateralDelta */
         uint256, /* _sizeDelta */
         bool, /* _isLong */
-        address /* _receiver */
-    ) external view override // solhint-disable-next-line no-empty-blocks
-    {
+        address /* _receiver */ // solhint-disable-next-line no-empty-blocks
+    ) external view override {
         // no additional validations
     }
 
+    /// @notice Validates a liquidation request, will revert if the request is invalid
+    /// @param _account The account to liquidate
+    /// @param _collateralToken The collateral token to liquidate
+    /// @param _indexToken The index token of the position
+    /// @param _isLong True if the position is long, false if the position is short
+    /// @param _raise True if checks should be performed against remaining collateral
     function validateLiquidation(
         address _account,
         address _collateralToken,
@@ -200,7 +208,11 @@ contract VaultUtils is IVaultUtils, Ownable {
         return (_size * fundingRate) / FUNDING_RATE_PRECISION;
     }
 
-    function getBuyUsdvFeeBasisPoints(address _token, uint256 _usdvAmount)
+    /// @notice Get the basis points for the buy usd fee
+    /// @param _token The address of the token
+    /// @param _usdAmount The amount of usd to buy
+    /// @return The basis points for the buy usd fee
+    function getBuyUsdFeeBasisPoints(address _token, uint256 _usdAmount)
         public
         view
         override
@@ -209,14 +221,18 @@ contract VaultUtils is IVaultUtils, Ownable {
         return
             getFeeBasisPoints(
                 _token,
-                _usdvAmount,
+                _usdAmount,
                 vault.mintBurnFeeBasisPoints(),
                 vault.taxBasisPoints(),
                 true
             );
     }
 
-    function getSellUsdvFeeBasisPoints(address _token, uint256 _usdvAmount)
+    /// @notice Get the basis points for the sell usd fee
+    /// @param _token The address of the token
+    /// @param _usdAmount The amount of usd to sell
+    /// @return The basis points for the sell usd fee
+    function getSellUsdFeeBasisPoints(address _token, uint256 _usdAmount)
         public
         view
         override
@@ -225,17 +241,22 @@ contract VaultUtils is IVaultUtils, Ownable {
         return
             getFeeBasisPoints(
                 _token,
-                _usdvAmount,
+                _usdAmount,
                 vault.mintBurnFeeBasisPoints(),
                 vault.taxBasisPoints(),
                 false
             );
     }
 
+    /// @notice Get the basis points for the swap fee
+    /// @param _tokenIn The address of the token to swap in
+    /// @param _tokenOut The address of the token to swap out
+    /// @param _usdAmount The amount to swap in usd
+    /// @return The basis points for the swap fee
     function getSwapFeeBasisPoints(
         address _tokenIn,
         address _tokenOut,
-        uint256 _usdvAmount
+        uint256 _usdAmount
     ) public view override returns (uint256) {
         bool isStableSwap = vault.stableTokens(_tokenIn) &&
             vault.stableTokens(_tokenOut);
@@ -247,14 +268,14 @@ contract VaultUtils is IVaultUtils, Ownable {
             : vault.taxBasisPoints();
         uint256 feesBasisPoints0 = getFeeBasisPoints(
             _tokenIn,
-            _usdvAmount,
+            _usdAmount,
             baseBps,
             taxBps,
             true
         );
         uint256 feesBasisPoints1 = getFeeBasisPoints(
             _tokenOut,
-            _usdvAmount,
+            _usdAmount,
             baseBps,
             taxBps,
             false
@@ -266,15 +287,17 @@ contract VaultUtils is IVaultUtils, Ownable {
                 : feesBasisPoints1;
     }
 
-    // cases to consider
-    // 1. initialAmount is far from targetAmount, action increases balance slightly => high rebate
-    // 2. initialAmount is far from targetAmount, action increases balance largely => high rebate
-    // 3. initialAmount is close to targetAmount, action increases balance slightly => low rebate
-    // 4. initialAmount is far from targetAmount, action reduces balance slightly => high tax
-    // 5. initialAmount is far from targetAmount, action reduces balance largely => high tax
-    // 6. initialAmount is close to targetAmount, action reduces balance largely => low tax
-    // 7. initialAmount is above targetAmount, nextAmount is below targetAmount and vice versa
-    // 8. a large swap should have similar fees as the same trade split into multiple smaller swaps
+    /*
+     * @dev cases to consider
+     * 1. initialAmount is far from targetAmount, action increases balance slightly => high rebate
+     * 2. initialAmount is far from targetAmount, action increases balance largely => high rebate
+     * 3. initialAmount is close to targetAmount, action increases balance slightly => low rebate
+     * 4. initialAmount is far from targetAmount, action reduces balance slightly => high tax
+     * 5. initialAmount is far from targetAmount, action reduces balance largely => high tax
+     * 6. initialAmount is close to targetAmount, action reduces balance largely => low tax
+     * 7. initialAmount is above targetAmount, nextAmount is below targetAmount and vice versa
+     * 8. a large swap should have similar fees as the same trade split into multiple smaller swaps
+     */
     function getFeeBasisPoints(
         address _token,
         uint256 _usdvDelta,
@@ -286,7 +309,8 @@ contract VaultUtils is IVaultUtils, Ownable {
             return _feeBasisPoints;
         }
 
-        uint256 initialAmount = vault.usdvAmounts(_token);
+        // uint256 initialAmount = vault.usdvAmounts(_token); // Question: how does this change affect the protocol?
+        uint256 initialAmount = getTokenAum(_token, false);
         uint256 nextAmount = initialAmount + _usdvDelta;
         if (!_increment) {
             nextAmount = _usdvDelta > initialAmount
@@ -294,7 +318,7 @@ contract VaultUtils is IVaultUtils, Ownable {
                 : initialAmount - _usdvDelta;
         }
 
-        uint256 targetAmount = vault.getTargetUsdvAmount(_token);
+        uint256 targetAmount = vault.getTargetUsdAmount(_token);
         if (targetAmount == 0) {
             return _feeBasisPoints;
         }
@@ -319,6 +343,26 @@ contract VaultUtils is IVaultUtils, Ownable {
         }
         uint256 taxBps = (_taxBasisPoints * averageDiff) / targetAmount;
         return _feeBasisPoints + taxBps;
+    }
+
+    /// @notice Get the assets under management (AUM)
+    /// @param maximise True to return the maximum AUM, false to return the minimum AUM
+    /// @return The assets under management (AUM)
+    function getAum(bool maximise) public view override returns (uint256) {
+        return vlpManager.getAum(maximise);
+    }
+
+    /// @notice Get the assets under management (AUM) in `_token`
+    /// @param _token The address of the token
+    /// @param maximise True to return the maximum AUM, false to return the minimum AUM
+    /// @return The assets under management (AUM) in `_token`
+    function getTokenAum(address _token, bool maximise)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        return vlpManager.getTokenAum(_token, maximise);
     }
 
     /// @dev Always returns true, included to satisfy the IVaultUtils interface

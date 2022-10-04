@@ -57,12 +57,12 @@ interface IVaultUtils {
         uint256 _entryFundingRate
     ) external view returns (uint256);
 
-    function getBuyUsdvFeeBasisPoints(address _token, uint256 _usdvAmount)
+    function getBuyUsdFeeBasisPoints(address _token, uint256 _usdAmount)
         external
         view
         returns (uint256);
 
-    function getSellUsdvFeeBasisPoints(address _token, uint256 _usdvAmount)
+    function getSellUsdFeeBasisPoints(address _token, uint256 _usdAmount)
         external
         view
         returns (uint256);
@@ -80,4 +80,11 @@ interface IVaultUtils {
         uint256 _taxBasisPoints,
         bool _increment
     ) external view returns (uint256);
+
+    function getTokenAum(address _token, bool maximise)
+        external
+        view
+        returns (uint256);
+
+    function getAum(bool maximise) external view returns (uint256);
 }

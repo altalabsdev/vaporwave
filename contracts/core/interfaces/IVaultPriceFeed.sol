@@ -22,8 +22,6 @@ interface IVaultPriceFeed {
     function setSpreadThresholdBasisPoints(uint256 _spreadThresholdBasisPoints)
         external;
 
-    function setFavorPrimaryPrice(bool _favorPrimaryPrice) external;
-
     function setPriceSampleSpace(uint256 _priceSampleSpace) external;
 
     function setMaxStrictPriceDeviation(uint256 _maxStrictPriceDeviation)
@@ -46,8 +44,7 @@ interface IVaultPriceFeed {
     function getPrice(
         address _token,
         bool _maximise,
-        bool _includeAmmPrice,
-        bool _useSwapPricing
+        bool _includeAmmPrice
     ) external view returns (uint256);
 
     function getAmmPrice(address _token) external view returns (uint256);

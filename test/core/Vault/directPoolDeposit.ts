@@ -84,7 +84,7 @@ describe("Vault.settings", function () {
 
     await expect(
       vault.connect(user0).directPoolDeposit(bnb.address)
-    ).to.be.revertedWith("Vault: _token not whitelisted");
+    ).to.be.revertedWith("Vault: _token not allowlisted");
 
     await vault.setTokenConfig(...getBnbConfig(bnb, bnbPriceFeed));
 
